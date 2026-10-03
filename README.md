@@ -91,7 +91,7 @@
 
 ## 처음 설치 (이 PC 기준, 한 번만)
 
-1. `git clone https://github.com/4j0tjf/maple-Scheduler C:\evelopment\maple-Scheduler` → 그 폴더에서 `npm ci`
+1. `git clone https://github.com/4j0tjf/maple-Scheduler C:\Development\maple-Scheduler` → 그 폴더에서 `npm ci`
 2. `npm run setup -- ..\maple-hunt` — maple-hunt의 `.env`로 이 프로젝트의 `.env`를 만들고(DB 이름만 `maple_scheduler`), DB가 없으면 만들고, 사냥터 목록을 복사하고, 기존 기록 DB 연결을 확인한다. 이미 된 단계는 건너뛰므로 여러 번 실행해도 된다. 직접 하려면 `.env.example`을 복사해 채우고 `CREATE DATABASE maple_scheduler;`.
 3. `npx prisma migrate deploy` → `npm run build`(Google 폰트를 받다가 연결 오류가 나면 한 번 더 실행)
 4. 서비스 등록 — 관리자 PowerShell. `npm`이 아니라 `next`를 직접 부른다.
@@ -99,7 +99,7 @@
    ```powershell
    $nssm = "C:\Users\user\AppData\Local\Microsoft\WinGet\Packages\NSSM.NSSM_Microsoft.Winget.Source_8wekyb3d8bbwe\nssm-2.24-101-g897c7ad\win64\nssm.exe"
    $node = (Get-Command node).Source
-   $root = "C:\evelopment\maple-Scheduler"
+   $root = "C:\Development\maple-Scheduler"
    New-Item -ItemType Directory -Force "$root\logs" | Out-Null
    & $nssm install MapleSchedulerWeb $node "$root\node_modules\next\dist\bin\next" "start" "-p" "3300" "-H" "127.0.0.1"
    & $nssm set MapleSchedulerWeb AppDirectory $root
