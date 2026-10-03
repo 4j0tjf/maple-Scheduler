@@ -1,0 +1,135 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// 스케줄러 계정. 아이디와 비밀번호만으로 가입한다.
+model Account {
+  id           String   @id @default(uuid())
+  /// 로그인 아이디. 소문자로 저장한다.
+  username     String   @unique
+  /// scrypt 해시. 세션 쿠키의 서명 키로도 쓰므로 비밀번호를 바꾸면 기존 로그인이 모두 끊긴다.
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  characters Character[]
+
+  @@map("accounts")
+}
+
+/// 계정에 등록한 메이플 캐릭터. 이미지·레벨·직업·월드는 넥슨 Open API(character/basic)에서 가져온다.
+model Character {
+  id           String    @id @default(uuid())
+  accountId    String    @map("account_id")
+  name         String
+  ocid         String?
+  world        String?
+  className    String?   @map("class_name")
+  level        Int?
+  image        String?
+  memo         String    @default("")
+  /// 탭 순서. 작은 값이 앞이다.
+  position     Int       @default(0)
+  /// 넥슨 스케줄러 응답(scheduler/character-state)에서 보스 부분만 정리한 마지막 상태.
+  bossState    Json?     @map("boss_state")
+  /// 기본 정보(이미지·레벨)를 마지막으로 가져온 시각.
+  syncedAt     DateTime? @map("synced_at")
+  /// 보스 상태를 마지막으로 가져온 시각.
+  bossSyncedAt DateTime? @map("boss_synced_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  account      Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  bossSettings BossSetting[]
+  bossClears   BossClear[]
+  hunts        HuntRecord[]
+
+  @@unique([accountId, name])
+  @@index([accountId, position])
+  @@map("characters")
+}
+
+/// 캐릭터별 보스 설정. 파티 인원과 직접 추가한 보스(게임 스케줄러에 등록하지 않은 보스)의 난이도.
+model BossSetting {
+  characterId String   @map("character_id")
+  /// 보스 key(src/data/bosses.ts).
+  boss        String
+  /// 직접 고른 난이도. null이면 게임 스케줄러에 등록한 난이도를 따른다.
+  difficulty  String?
+  partySize   Int      @default(1) @map("party_size")
+  /// 목록에 직접 추가한 보스인지. 게임에 등록하지 않아도 목록에 남는다.
+  added       Boolean  @default(false)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@id([characterId, boss])
+  @@map("boss_settings")
+}
+
+/// 보스 처치. 주간 보스는 그 주 목요일, 월간 보스는 그 달 1일(한국 날짜)을 period로 쓴다.
+model BossClear {
+  characterId String   @map("character_id")
+  period      String
+  boss        String
+  difficulty  String
+  partySize   Int      @map("party_size")
+  /// 처치했을 때의 결정석 판매가(1인 기준). 나중에 가격이 바뀌어도 그 주의 수익은 그대로다.
+  price       BigInt
+  /// api: 넥슨 스케줄러가 완료로 알려 줌. manual: 직접 체크.
+  source      String
+  clearedAt   DateTime @default(now()) @map("cleared_at")
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@id([characterId, period, boss])
+  @@index([period])
+  @@map("boss_clears")
+}
+
+/// 재획 1차수. 브라우저가 만든 id로 올려서 다시 보내도 한 건만 남는다.
+model HuntRecord {
+  id          String   @id
+  characterId String   @map("character_id")
+  startedAt   DateTime @map("started_at")
+  /// 조각 시세를 붙일 한국 날짜(사냥 시작일, YYYY-MM-DD).
+  day         String
+  /// 사냥 상태 전체(Hunt). 브라우저의 기록 형식을 그대로 담는다.
+  data        Json
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  character Character      @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  evidence  HuntEvidence[]
+
+  @@index([characterId, startedAt(sort: Desc)])
+  @@map("hunt_records")
+}
+
+/// 시작·종료 수량을 읽은 순간의 OCR 이미지. 영상 대신 남기는 증거라 차수당 몇 장만 둔다.
+model HuntEvidence {
+  id         String   @id @default(uuid())
+  huntId     String   @map("hunt_id")
+  /// baseline(시작) · final(종료) · screen(종료 화면)
+  kind       String
+  capturedAt DateTime @default(now()) @map("captured_at")
+  image      Bytes
+
+  hunt HuntRecord @relation(fields: [huntId], references: [id], onDelete: Cascade)
+
+  @@index([huntId, kind, capturedAt(sort: Desc)])
+  @@map("hunt_evidence")
+}
+
+/// 기존 사냥 기록(maple-hunt) 가져오기 이력. 기존 캐릭터 하나는 한 스케줄러 캐릭터로만 옮긴다.
+model HuntImport {
+  legacyCharacterId String   @id @map("legacy_character_id")
+  legacyName        String   @map("legacy_name")
+  characterId       String   @map("character_id")
+  records           Int
+  importedAt        DateTime @default(now()) @map("imported_at")
+
+  @@map("hunt_imports")
+}
