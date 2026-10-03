@@ -145,8 +145,8 @@ test("session cookie is HttpOnly, scoped to the base path and read back from the
 });
 test("usernames are lower-cased and limited to simple ids", () => {
   assert.equal(normalizeUsername("  Maple_01 "), "maple_01");
-  for (const ok of ["maple", "a123", "my_id_2026"]) assert.ok(USERNAME.test(ok), ok);
-  for (const bad of ["abc", "1abc", "가나다라", "has space", "a".repeat(21)]) assert.ok(!USERNAME.test(bad), bad);
+  for (const ok of ["maple", "a123", "my_id_2026", "1abc", "4j0tjf", normalizeUsername("4j0tjf@Naver.com"), "a.b-c_d"]) assert.ok(USERNAME.test(ok), ok);
+  for (const bad of ["abc", "_abc", ".abc", "가나다라", "has space", "a+b@x.com", "a".repeat(41)]) assert.ok(!USERNAME.test(bad), bad);
 });
 test("attempt limiter blocks within the window and forgets afterwards", () => {
   const attempts = new Attempts(2, 1000);

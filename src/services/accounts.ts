@@ -2,8 +2,11 @@ import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } fr
 import { promisify } from "node:util";
 
 const scrypt = promisify(scryptCallback) as (password: string, salt: Buffer, length: number) => Promise<Buffer>;
-/** 로그인 아이디: 영문 소문자로 시작하는 영문·숫자·밑줄 4~20자. 대문자로 넣어도 소문자로 저장한다. */
-export const USERNAME = /^[a-z][a-z0-9_]{3,19}$/;
+/**
+ * 로그인 아이디: 영문·숫자로 시작하는 4~40자. 영문·숫자와 . _ - @ 를 쓸 수 있어 이메일 주소도 아이디로 쓸 수 있다.
+ * 대문자로 넣어도 소문자로 저장한다(Maple01과 maple01은 같은 아이디).
+ */
+export const USERNAME = /^[a-z0-9][a-z0-9._@-]{3,39}$/;
 export const PASSWORD = { min: 6, max: 72 };
 export const CHARACTER_NAME = /^[가-힣A-Za-z0-9]{2,12}$/;
 /** 로그인 유지 기간. 쿠키와 서명 둘 다 이 시간이 지나면 끝난다. */

@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   const username = normalizeUsername(body?.username);
   const password = typeof body?.password === "string" ? body.password : "";
   const signup = body?.mode === "signup";
-  if (!USERNAME.test(username)) return denied("아이디는 영문 소문자로 시작하는 영문·숫자·밑줄(_) 4~20자입니다.", 400);
+  if (!USERNAME.test(username)) return denied("아이디는 영문·숫자로 시작하는 4~40자이며 영문·숫자와 . _ - @ 만 쓸 수 있습니다.", 400);
   if (password.length < PASSWORD.min || password.length > PASSWORD.max) return denied(`비밀번호는 ${PASSWORD.min}~${PASSWORD.max}자입니다.`, 400);
   try {
     let account;

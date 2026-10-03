@@ -34,7 +34,7 @@ export default function AuthCard({ onLogin, compact = false }: { onLogin: (accou
     <form className="mt-4 space-y-3" onSubmit={event => void submit(event)}>
       <label className="block text-sm font-medium">아이디
         <input className={`${field} mt-1 w-full`} value={username} onChange={event => setUsername(event.target.value)} autoComplete="username" required
-          minLength={4} maxLength={20} pattern="[A-Za-z][A-Za-z0-9_]{3,19}" title="영문으로 시작하는 영문·숫자·밑줄(_) 4~20자" placeholder="영문·숫자 4~20자" />
+          minLength={4} maxLength={40} title="영문·숫자로 시작하는 4~40자. 영문·숫자와 . _ - @ 사용 가능(이메일 주소도 가능)" placeholder="영문·숫자 4~40자 (이메일도 가능)" />
       </label>
       <label className="block text-sm font-medium">비밀번호
         <input className={`${field} mt-1 w-full`} type="password" value={password} onChange={event => setPassword(event.target.value)} required minLength={6} maxLength={72}
