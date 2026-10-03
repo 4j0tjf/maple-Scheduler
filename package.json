@@ -11,8 +11,8 @@
     "setup": "tsx scripts/setup.ts",
     "db:migrate": "prisma migrate deploy",
     "scanner:assets": "node scripts/scanner-assets.mjs",
-    "predev": "npm run scanner:assets",
-    "prebuild": "npm run scanner:assets",
+    "predev": "prisma generate && npm run scanner:assets",
+    "prebuild": "prisma generate && npm run scanner:assets",
     "maps:import": "tsx scripts/import-maps.ts",
     "hunt:import": "tsx scripts/import-hunt.ts"
   },
