@@ -30,9 +30,9 @@ function tone(boss: Boss) {
  * 보스 얼굴 아이콘. public/bosses/{key}.png 등이 있으면 그 이미지, 없으면 짧은 이름 글자를 원 안에 보여준다.
  * 이미지는 /api/boss-icons가 직접 읽어 준다(운영 서버는 시작 뒤에 public에 넣은 파일을 주지 않는다).
  */
-export default function BossIcon({ boss, size = "md" }: { boss: Boss; size?: "sm" | "md" | "lg" }) {
+export default function BossIcon({ boss, size = "md" }: { boss: Boss; size?: "sm" | "md" | "lg" | "xl" | "2xl" }) {
   const icons = useIcons();
-  const box = { sm: "size-8 text-[10px]", md: "size-11 text-xs", lg: "size-14 text-sm" }[size];
+  const box = { sm: "size-8 text-[10px]", md: "size-11 text-xs", lg: "size-14 text-sm", xl: "size-20 text-base", "2xl": "size-26 text-lg" }[size];
   const file = icons?.[boss.key];
   if (file) return <span aria-hidden className={`${box} relative shrink-0 overflow-hidden rounded-full bg-surface-2 ring-1 ring-line`}>
     {/* eslint-disable-next-line @next/next/no-img-element -- 운영 중에 넣는 public 파일이라 빌드 때 크기를 알 수 없다. */}

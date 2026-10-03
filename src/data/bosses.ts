@@ -28,13 +28,14 @@ export type Boss = {
 /** 백만 단위 → 메소. 16.1 × 1e6 같은 소수 곱은 오차가 생기므로 반올림한다. */
 const m = (value: number) => Math.round(value * 1_000_000);
 export const BOSSES: Boss[] = [
+  // 사용자가 저장한 나무위키 보스 목록 HTML의 등장 순서. 가격표·캐릭터 보스 목록·추가 목록이 함께 쓴다.
   { key: "zakum", name: "자쿰", short: "자쿰", cycle: "weekly", level: 90, maxParty: 6, levels: [{ difficulty: "chaos", price: 4_040_000, previous: 8_080_000 }] },
   { key: "magnus", name: "매그너스", short: "매그너스", cycle: "weekly", level: 175, maxParty: 6, levels: [{ difficulty: "hard", price: 4_280_000, previous: 8_560_000 }] },
+  { key: "papulatus", name: "파풀라투스", short: "파풀", cycle: "weekly", level: 190, maxParty: 6, levels: [{ difficulty: "chaos", price: 6_550_000, previous: m(13.1) }] },
   { key: "von_bon", name: "반반", short: "반반", cycle: "weekly", level: 180, maxParty: 6, levels: [{ difficulty: "chaos", price: 4_070_000, previous: 8_150_000 }] },
   { key: "pierre", name: "피에르", short: "피에르", cycle: "weekly", level: 180, maxParty: 6, levels: [{ difficulty: "chaos", price: 4_080_000, previous: 8_170_000 }] },
   { key: "crimson_queen", name: "블러디퀸", short: "블러디퀸", cycle: "weekly", level: 180, maxParty: 6, levels: [{ difficulty: "chaos", price: 4_070_000, previous: 8_140_000 }] },
   { key: "vellum", name: "벨룸", short: "벨룸", cycle: "weekly", level: 180, maxParty: 6, levels: [{ difficulty: "chaos", price: 4_640_000, previous: 9_280_000 }] },
-  { key: "papulatus", name: "파풀라투스", short: "파풀", cycle: "weekly", level: 190, maxParty: 6, levels: [{ difficulty: "chaos", price: 6_550_000, previous: m(13.1) }] },
   { key: "lotus", name: "스우", short: "스우", cycle: "weekly", level: 190, maxParty: 6, partyOverride: { extreme: 2 }, levels: [
     { difficulty: "normal", price: 8_350_000, previous: m(16.7) }, { difficulty: "hard", price: m(48.9), previous: m(51.5) }, { difficulty: "extreme", price: m(545), previous: m(574) }] },
   { key: "damien", name: "데미안", short: "데미안", cycle: "weekly", level: 190, maxParty: 6, levels: [
@@ -51,6 +52,8 @@ export const BOSSES: Boss[] = [
     { difficulty: "normal", price: m(67.6), previous: m(71.2) }, { difficulty: "hard", price: m(100), previous: m(106) }] },
   { key: "darknell", name: "듄켈", short: "듄켈", cycle: "weekly", level: 255, maxParty: 6, levels: [
     { difficulty: "normal", price: m(23.7), previous: m(47.5) }, { difficulty: "hard", price: m(89.6), previous: m(94.4) }] },
+  { key: "black_mage", name: "검은 마법사", short: "검마", cycle: "monthly", level: 255, maxParty: 6, levels: [
+    { difficulty: "hard", price: m(465), previous: m(665) }, { difficulty: "extreme", price: m(5680), previous: m(8740) }] },
   { key: "chosen_seren", name: "선택받은 세렌", short: "세렌", cycle: "weekly", level: 260, maxParty: 6, levels: [
     { difficulty: "normal", price: m(167), previous: m(239) }, { difficulty: "hard", price: m(302), previous: m(356) }, { difficulty: "extreme", price: m(1840), previous: m(2835) }] },
   { key: "guardian_kalos", name: "감시자 칼로스", short: "칼로스", cycle: "weekly", level: 265, maxParty: 6, levels: [
@@ -72,8 +75,6 @@ export const BOSSES: Boss[] = [
     { difficulty: "normal", price: m(1320), previous: m(1368) }, { difficulty: "hard", price: m(3078) }] },
   { key: "jupiter", name: "유피테르", short: "유피테르", cycle: "weekly", level: 295, maxParty: 3, levels: [
     { difficulty: "normal", price: m(1560), previous: m(1615) }, { difficulty: "hard", price: m(4845) }] },
-  { key: "black_mage", name: "검은 마법사", short: "검마", cycle: "monthly", level: 255, maxParty: 6, levels: [
-    { difficulty: "hard", price: m(465), previous: m(665) }, { difficulty: "extreme", price: m(5680), previous: m(8740) }] },
   { key: "meirin", name: "시즌 보스 메이린", short: "메이린", cycle: "season", level: 270, maxParty: 1,
     note: "결정석이 아니라 황금 메소 주머니(1개 1,000만 메소) 가치로 계산합니다.", levels: [
       { difficulty: "normal", price: m(300) }, { difficulty: "hard", price: m(600) }] },

@@ -77,10 +77,10 @@ export function bossRows(state: BossState | null, settings: Record<string, BossS
       registered: !!api.registered, added: !!setting?.added, cleared: !!clear || !!api.complete,
       clearSource: clear?.source ?? (api.complete ? "api" : null), overLimit: false, period });
   }
-  rows.sort((a, b) => b.share - a.share || a.boss.level - b.boss.level);
+  // 화면 순서는 BOSSES(저장한 보스 목록 HTML 순서)를 유지하고, 수익에 넣을 보스만 몫 순으로 고른다.
   const limit = state?.weeklyLimit || WEEKLY_BOSS_LIMIT;
   // 처치한 보스를 먼저 세고, 남은 자리는 몫이 큰 보스부터 채운다.
-  const weekly = rows.filter(row => row.boss.cycle === "weekly");
+  const weekly = rows.filter(row => row.boss.cycle === "weekly").sort((a, b) => b.share - a.share || a.boss.level - b.boss.level);
   const counted = new Set([...weekly.filter(row => row.cleared), ...weekly.filter(row => !row.cleared)].slice(0, limit));
   for (const row of weekly) row.overLimit = !counted.has(row);
   return rows;

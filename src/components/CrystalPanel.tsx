@@ -22,7 +22,7 @@ const SECTIONS: { cycle: Cycle; title: string; note: string }[] = [
  * 로그인하지 않아도 볼 수 있다.
  */
 export default function CrystalPanel() {
-  const [party, setParty] = useState(1); const [sort, setSort] = useState<"price" | "boss">("price");
+  const [party, setParty] = useState(1); const [sort, setSort] = useState<"price" | "boss">("boss");
   return <div className="min-w-0 space-y-6">
     <header className="flex flex-wrap items-end justify-between gap-4">
       <div>
@@ -36,7 +36,7 @@ export default function CrystalPanel() {
             className={`min-w-9 rounded-lg px-2 py-1 text-sm font-semibold tabular-nums ${party === size ? "bg-accent text-accent-ink" : "text-ink-muted hover:bg-surface-2 hover:text-ink"}`}>{size}</button>)}
         </div>
         <div role="radiogroup" aria-label="정렬" className="flex rounded-xl border border-line bg-surface-1 p-1 text-sm font-semibold shadow-card">
-          {([["price", "가격순"], ["boss", "보스순"]] as const).map(([key, label]) => <button key={key} type="button" role="radio" aria-checked={sort === key} onClick={() => setSort(key)}
+          {([["boss", "보스순"], ["price", "가격순"]] as const).map(([key, label]) => <button key={key} type="button" role="radio" aria-checked={sort === key} onClick={() => setSort(key)}
             className={`rounded-lg px-3 py-1 ${sort === key ? "bg-surface-3 text-ink" : "text-ink-muted hover:text-ink"}`}>{label}</button>)}
         </div>
       </div>
@@ -63,17 +63,22 @@ export default function CrystalPanel() {
           <tbody>{sorted.map(boss => boss.levels.map((level, index) => {
             const max = maxPartyOf(boss, level.difficulty); const size = Math.min(party, max);
             return <tr key={`${boss.key}-${level.difficulty}`} className={index === boss.levels.length - 1 ? "border-b border-line" : ""}>
-              {index === 0 && <th scope="rowgroup" rowSpan={boss.levels.length} className="py-2.5 pr-3 align-top font-normal">
-                <span className="flex items-center gap-2.5"><BossIcon boss={boss} size="sm" /><span className="truncate font-semibold">{boss.name}</span>
-                  {boss.cycle !== "weekly" && <span className="rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-semibold text-ink-muted">{CYCLE_LABEL[boss.cycle]}</span>}</span>
-                {boss.note && <span className="mt-1 block whitespace-normal text-xs text-ink-faint">{boss.note}</span>}
+              {index === 0 && <th scope="rowgroup" rowSpan={boss.levels.length} className="py-2.5 pr-3 align-middle font-normal">
+                <span className="flex items-center gap-2.5">
+                  <BossIcon boss={boss} size={boss.levels.length === 1 ? "sm" : boss.levels.length === 2 ? "lg" : boss.levels.length === 3 ? "xl" : "2xl"} />
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold" title={boss.name}>{boss.name}</span>
+                    {boss.cycle !== "weekly" && <span className="mt-1 inline-block rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-semibold text-ink-muted">{CYCLE_LABEL[boss.cycle]}</span>}
+                    {boss.note && <span className="mt-1 block whitespace-normal text-xs text-ink-faint">{boss.note}</span>}
+                  </span>
+                </span>
               </th>}
               <td className="px-3 py-2.5"><DifficultyChip difficulty={level.difficulty} /></td>
               <td className="px-3 py-2.5 text-right tabular-nums" title={`${number(level.price)} 메소`}>{eok(level.price)}</td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-accent" title={`${number(shareOf(level.price, size))} 메소`}>
                 {eok(shareOf(level.price, size))}{size < party && <span className="ml-1 text-[11px] font-normal text-ink-faint">({max}인)</span>}</td>
               <td className="px-3 py-2.5 text-right text-xs tabular-nums">{change(level.price, level.previous)}</td>
-              {index === 0 && <td rowSpan={boss.levels.length} className="py-2.5 pl-3 text-right align-top text-xs tabular-nums text-ink-muted">Lv.{boss.level} · 최대 {boss.maxParty}인{boss.partyOverride ? "*" : ""}</td>}
+              {index === 0 && <td rowSpan={boss.levels.length} className="py-2.5 pl-3 text-right align-middle text-xs tabular-nums text-ink-muted">Lv.{boss.level} · 최대 {boss.maxParty}인{boss.partyOverride ? "*" : ""}</td>}
             </tr>;
           }))}</tbody>
         </table></div>
