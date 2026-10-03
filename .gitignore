@@ -27,6 +27,10 @@ next-env.d.ts
 *.pem
 npm-debug.log*
 
+# 보스 얼굴 이미지는 각 PC에서 넣는다(게임 이미지라 저장소에 올리지 않는다).
+/public/bosses/*
+!/public/bosses/.gitkeep
+
 # Generated from locked OCR packages by predev/prebuild
 /public/scanner/ocr/
 /public/scanner/pixel-worker.js

@@ -49,7 +49,7 @@
 
 ### 보스 얼굴 아이콘
 
-`public/bosses/<보스 key>.png`(webp·jpg·gif도 가능)에 넣으면 다시 빌드하지 않아도 보인다. 파일이 없는 보스는 짧은 이름 글자 아이콘으로 대신한다. key 목록과 규칙은 [docs/boss-icons.md](docs/boss-icons.md). 게임 이미지는 저장소에 넣지 않았다(저작권 NEXON).
+넥슨 Open API에는 보스 이미지가 없다. `public/bosses/<보스 key>.png`(webp·jpg·gif도 가능)로 복사하면 다시 빌드하거나 재시작하지 않아도 새로고침만으로 보인다(이미지는 `/api/boss-icons`가 직접 읽어 준다). 파일이 없는 보스는 짧은 이름 글자 아이콘으로 대신한다. 넣는 명령 예시와 key 목록은 [docs/boss-icons.md](docs/boss-icons.md). 이 폴더의 이미지는 저장소에 올리지 않는다(저작권 NEXON).
 
 ## 기존 사냥 기록 옮기기
 
