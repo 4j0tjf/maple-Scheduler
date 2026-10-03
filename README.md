@@ -91,9 +91,10 @@
 
 ## 처음 설치 (이 PC 기준, 한 번만)
 
-1. DB: `CREATE DATABASE maple_scheduler;` 후 `.env.example`을 복사해 `.env`를 만들고 `DATABASE_URL`·`HUNT_DATABASE_URL`·`MARKET_URL`·`NEXON_API_KEY`를 채운다.
-2. `npm install` → `npx prisma migrate deploy` → `npm run build`(Google 폰트를 받다가 연결 오류가 나면 한 번 더 실행)
-3. 서비스 등록 — 관리자 PowerShell. `npm`이 아니라 `next`를 직접 부른다.
+1. `git clone https://github.com/4j0tjf/maple-Scheduler D:\evelopment\maple-Scheduler` → 그 폴더에서 `npm ci`
+2. `npm run setup -- ..\maple-hunt` — maple-hunt의 `.env`로 이 프로젝트의 `.env`를 만들고(DB 이름만 `maple_scheduler`), DB가 없으면 만들고, 사냥터 목록을 복사하고, 기존 기록 DB 연결을 확인한다. 이미 된 단계는 건너뛰므로 여러 번 실행해도 된다. 직접 하려면 `.env.example`을 복사해 채우고 `CREATE DATABASE maple_scheduler;`.
+3. `npx prisma migrate deploy` → `npm run build`(Google 폰트를 받다가 연결 오류가 나면 한 번 더 실행)
+4. 서비스 등록 — 관리자 PowerShell. `npm`이 아니라 `next`를 직접 부른다.
 
    ```powershell
    $nssm = "C:\Users\user\AppData\Local\Microsoft\WinGet\Packages\NSSM.NSSM_Microsoft.Winget.Source_8wekyb3d8bbwe\nssm-2.24-101-g897c7ad\win64\nssm.exe"
@@ -107,8 +108,8 @@
    & $nssm start MapleSchedulerWeb
    ```
 
-4. 위 '시세 사이트에서 할 일'을 적용한다.
-5. 기존 기록 옮기기(위 절).
+5. 위 '시세 사이트에서 할 일'을 적용한다.
+6. 기존 기록 옮기기(위 절).
 
 ## 코드를 고친 뒤 적용
 

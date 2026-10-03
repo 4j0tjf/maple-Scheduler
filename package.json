@@ -8,6 +8,7 @@
     "start": "next start -p 3300 -H 127.0.0.1",
     "lint": "eslint",
     "test": "tsx --test tests/*.test.ts",
+    "setup": "tsx scripts/setup.ts",
     "db:migrate": "prisma migrate deploy",
     "scanner:assets": "node scripts/scanner-assets.mjs",
     "predev": "npm run scanner:assets",
