@@ -97,7 +97,11 @@
 4. 서비스 등록 — 관리자 PowerShell. `npm`이 아니라 `next`를 직접 부른다.
 
    ```powershell
-   $nssm = "C:\Users\user\AppData\Local\Microsoft\WinGet\Packages\NSSM.NSSM_Microsoft.Winget.Source_8wekyb3d8bbwe\nssm-2.24-101-g897c7ad\win64\nssm.exe"
+   # nssm.exe 위치: 기존 사냥 기록 서비스(MapleHuntWeb)가 쓰는 것 → PATH → WinGet 설치 폴더 순서로 찾는다. 없으면 winget install NSSM.NSSM
+   $nssm = (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\MapleHuntWeb" -ErrorAction SilentlyContinue).ImagePath -replace '"', ''
+   if (-not $nssm -or -not (Test-Path $nssm)) { $nssm = (Get-Command nssm -ErrorAction SilentlyContinue).Source }
+   if (-not $nssm) { $nssm = Get-ChildItem "C:\Users\*\AppData\Local\Microsoft\WinGet\Packages" -Recurse -Filter nssm.exe -ErrorAction SilentlyContinue | Where-Object FullName -like "*win64*" | Select-Object -First 1 -ExpandProperty FullName }
+   if (-not $nssm) { throw "nssm.exe를 찾지 못했습니다. winget install NSSM.NSSM 후 다시 실행하세요." }
    $node = (Get-Command node).Source
    $root = "C:\Development\maple-Scheduler"
    New-Item -ItemType Directory -Force "$root\logs" | Out-Null
