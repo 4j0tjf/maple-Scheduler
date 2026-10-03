@@ -7,7 +7,7 @@
 명령은 따로 없다. 이미지 파일을 `public\bosses` 폴더에 **보스 key 이름**으로 복사하면 된다.
 
 ```powershell
-cd D:\evelopment\maple-Scheduler
+cd C:\evelopment\maple-Scheduler
 Copy-Item "C:\Users\user\Downloads\루시드.png" "public\bosses\lucid.png"
 Copy-Item "C:\Users\user\Downloads\검은마법사.webp" "public\bosses\black_mage.webp"
 ```
