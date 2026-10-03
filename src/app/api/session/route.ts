@@ -1,7 +1,7 @@
 import { BASE_PATH } from "@/base-path";
 import { prisma } from "@/lib/prisma";
-import { Attempts, hashPassword, issueToken, normalizeUsername, PASSWORD, SESSION_MS, sessionCookie, USERNAME, verifyPassword } from "@/services/accounts";
-import { clientAddress, denied, json, readJson, sameSite, secureRequest, sessionAccount } from "@/services/access";
+import { Attempts, hashPassword, issueToken, normalizeUsername, PASSWORD, passwordValid, SESSION_MS, sessionCookie, USERNAME, verifyPassword } from "@/services/accounts";
+import { clientAddress, denied, json, LOGIN_REQUIRED, readJson, sameSite, secureRequest, sessionAccount } from "@/services/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +49,29 @@ export async function POST(request: Request) {
     if ((error as { code?: string }).code === "P2002") return denied("이미 사용 중인 아이디입니다.", 409);
     return denied("계정 저장소에 연결할 수 없습니다.", 503);
   }
+}
+
+/**
+ * 비밀번호 변경. { current, next } 지금 비밀번호를 확인한 뒤 바꾼다.
+ * 세션은 비밀번호 해시로 서명하므로 다른 기기의 로그인은 모두 끊기고, 이 브라우저에는 새 쿠키를 준다.
+ */
+export async function PATCH(request: Request) {
+  const cross = sameSite(request); if (cross) return cross;
+  const body = await readJson<{ current?: unknown; next?: unknown }>(request);
+  if (typeof body?.current !== "string" || !body.current) return denied("지금 비밀번호를 입력하세요.", 400);
+  if (!passwordValid(body.next)) return denied(`새 비밀번호는 ${PASSWORD.min}~${PASSWORD.max}자입니다.`, 400);
+  try {
+    const session = await sessionAccount(request); if (!session) return denied(LOGIN_REQUIRED, 401);
+    if (failures.blocked(session.username)) return denied("비밀번호를 여러 번 틀렸습니다. 10분 뒤 다시 시도하세요.", 429);
+    const account = await prisma.account.findUnique({ where: { id: session.id } });
+    if (!account) return denied(LOGIN_REQUIRED, 401);
+    if (!await verifyPassword(body.current, account.passwordHash)) { failures.add(session.username); return denied("지금 비밀번호가 맞지 않습니다.", 401); }
+    failures.clear(session.username);
+    const passwordHash = await hashPassword(body.next);
+    await prisma.account.update({ where: { id: account.id }, data: { passwordHash } });
+    const token = issueToken(account.id, passwordHash);
+    return json({ ok: true }, { headers: { "Set-Cookie": sessionCookie(token.token, Math.floor(SESSION_MS / 1000), secureRequest(request), BASE_PATH) } });
+  } catch { return denied("계정 저장소에 연결할 수 없습니다.", 503); }
 }
 
 /** 로그아웃. 쿠키를 지운다. */

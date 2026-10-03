@@ -6,6 +6,7 @@ import AuthCard from "./AuthCard";
 import BossPanel from "./BossPanel";
 import CrystalPanel from "./CrystalPanel";
 import HuntingDashboard from "./HuntingDashboard";
+import PasswordChange from "./PasswordChange";
 import ProfitPanel from "./ProfitPanel";
 import { card, smallButton } from "./ui";
 
@@ -29,6 +30,7 @@ export default function SchedulerApp() {
   const [account, setAccount] = useState<Account | null | undefined>(undefined);
   const [characters, setCharacters] = useState<CharacterView[]>([]); const [error, setError] = useState("");
   const [tab, setTab] = useState<Tab>("bosses"); const [huntOpened, setHuntOpened] = useState(false); const [scanning, setScanning] = useState(false);
+  const [changing, setChanging] = useState(false); const [notice, setNotice] = useState("");
 
   const loadCharacters = useCallback(async () => {
     try { setCharacters((await api<{ characters: CharacterView[] }>("/api/characters")).characters); setError(""); }
@@ -50,7 +52,7 @@ export default function SchedulerApp() {
   async function logout() {
     if (scanning) return;
     await api("/api/session", null, { method: "DELETE" }).catch(() => {});
-    setAccount(null); setCharacters([]); setHuntOpened(false);
+    setAccount(null); setCharacters([]); setHuntOpened(false); setChanging(false); setNotice("");
   }
   const unauthorized = useCallback(() => setAccount(null), []);
   const updateCharacter = useCallback((id: string, patch: Partial<CharacterView>) => {
@@ -71,11 +73,16 @@ export default function SchedulerApp() {
       <aside className="min-w-0 lg:sticky lg:top-[67px]">
         <div className="flex items-center justify-between gap-3 lg:block">
           <p className="text-lg font-bold tracking-tight">스케줄러</p>
-          {account && <div className="flex items-center gap-2 lg:mt-2">
-            <span className="truncate text-xs text-ink-muted" title="로그인한 아이디">{account.username}</span>
-            <button className={`${smallButton} shrink-0`} disabled={scanning} title={scanning ? "스캔을 중지한 뒤 로그아웃하세요." : undefined} onClick={() => void logout()}>로그아웃</button>
+          {account && <div className="min-w-0 lg:mt-2">
+            <p className="truncate text-right text-xs text-ink-muted lg:text-left" title="로그인한 아이디">{account.username}</p>
+            <div className="mt-1.5 flex justify-end gap-1.5 lg:justify-start">
+              <button className={`${smallButton} shrink-0`} aria-expanded={changing} onClick={() => { setChanging(!changing); setNotice(""); }}>비밀번호 변경</button>
+              <button className={`${smallButton} shrink-0`} disabled={scanning} title={scanning ? "스캔을 중지한 뒤 로그아웃하세요." : undefined} onClick={() => void logout()}>로그아웃</button>
+            </div>
           </div>}
         </div>
+        {account && changing && <PasswordChange onClose={changed => { setChanging(false); if (changed) setNotice("비밀번호를 바꿨습니다. 다른 기기에서는 새 비밀번호로 다시 로그인하세요."); }} />}
+        {notice && <p role="status" className="mt-2 text-xs text-success">{notice}</p>}
         <nav aria-label="스케줄러 메뉴" className="mt-3 lg:mt-5">
           <ul role="tablist" aria-orientation="vertical" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 lg:flex-col lg:overflow-visible">
             {TABS.map(item => <li key={item.key} role="presentation" className="shrink-0">

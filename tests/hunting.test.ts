@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { addPotion, createHunt, DURATION, fillMissing, noteInventory, NOTHING_SEEN, PRE_START_MS, withPreStart, finishHunt, fragmentValue, koreaDay, observeInventory, parseCount, parseMeso, parseTimer, potionFromTimer, PotionDetector, saveHunt, StableValue } from "../src/services/domain";
-import { Attempts, cookieValue, hashPassword, issueToken, normalizeUsername, readToken, SESSION_COOKIE, SESSION_MS, sessionCookie, tokenValid, USERNAME, verifyPassword } from "../src/services/accounts";
+import { Attempts, cookieValue, hashPassword, issueToken, normalizeUsername, passwordValid, readToken, SESSION_COOKIE, SESSION_MS, sessionCookie, temporaryPassword, tokenValid, USERNAME, verifyPassword } from "../src/services/accounts";
 import { EVIDENCE_KEEP, EVIDENCE_KINDS, huntSchema, imageType, presentRecord, STALE_MS } from "../src/services/records";
 import { findTemplate, pixelSignature } from "../src/services/browser";
 
@@ -142,6 +142,16 @@ test("session cookie is HttpOnly, scoped to the base path and read back from the
   assert.ok(!sessionCookie("x", 0, false, "/scheduler").includes("Secure"));
   assert.equal(cookieValue("theme=dark; maple_scheduler_session=sched.a.1.sig", SESSION_COOKIE), "sched.a.1.sig");
   assert.equal(cookieValue("other=1", SESSION_COOKIE), null); assert.equal(cookieValue(null, SESSION_COOKIE), null);
+});
+test("temporary passwords are readable, random and accepted by the password rule", () => {
+  const seen = new Set<string>();
+  for (let i = 0; i < 200; i++) {
+    const password = temporaryPassword();
+    assert.match(password, /^[a-hjkmnp-z2-9]{4}-[a-hjkmnp-z2-9]{4}-[a-hjkmnp-z2-9]{4}$/, password);
+    assert.ok(passwordValid(password)); seen.add(password);
+  }
+  assert.equal(seen.size, 200);
+  assert.equal(passwordValid("12345"), false); assert.equal(passwordValid("123456"), true); assert.equal(passwordValid("x".repeat(73)), false); assert.equal(passwordValid(123456), false);
 });
 test("usernames are lower-cased and limited to simple ids", () => {
   assert.equal(normalizeUsername("  Maple_01 "), "maple_01");

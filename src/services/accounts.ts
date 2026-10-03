@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomInt, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 
 const scrypt = promisify(scryptCallback) as (password: string, salt: Buffer, length: number) => Promise<Buffer>;
@@ -14,6 +14,12 @@ export const SESSION_MS = 30 * 24 * 3600_000;
 export const SESSION_COOKIE = "maple_scheduler_session";
 
 export const normalizeUsername = (value: unknown) => typeof value === "string" ? value.trim().toLowerCase() : "";
+export const passwordValid = (value: unknown): value is string => typeof value === "string" && value.length >= PASSWORD.min && value.length <= PASSWORD.max;
+/** 관리자 초기화용 임시 비밀번호. 헷갈리는 글자(0·O·1·l·I)를 빼고 4자씩 끊어 12자로 만든다. */
+const TEMPORARY = "abcdefghjkmnpqrstuvwxyz23456789";
+export function temporaryPassword() {
+  return Array.from({ length: 3 }, () => Array.from({ length: 4 }, () => TEMPORARY[randomInt(TEMPORARY.length)]).join("")).join("-");
+}
 export async function hashPassword(password: string) {
   const salt = randomBytes(16); const hash = await scrypt(password, salt, 32);
   return `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`;

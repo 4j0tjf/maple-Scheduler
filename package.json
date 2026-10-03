@@ -14,7 +14,8 @@
     "predev": "prisma generate && npm run scanner:assets",
     "prebuild": "prisma generate && npm run scanner:assets",
     "maps:import": "tsx scripts/import-maps.ts",
-    "hunt:import": "tsx scripts/import-hunt.ts"
+    "hunt:import": "tsx scripts/import-hunt.ts",
+    "account:reset": "tsx scripts/reset-password.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.9.1",
