@@ -68,7 +68,8 @@ test("boss list merges game registration, clears and manual additions", () => {
   assert.equal(byKey.lucid.share, Math.floor(59_700_000 / 2)); assert.equal(byKey.lucid.cleared, false); assert.equal(byKey.lucid.registered, true);
   assert.equal(byKey.will.difficulty, "hard", "the difficulty actually cleared wins over the registered one");
   assert.equal(byKey.will.cleared, true); assert.equal(byKey.will.clearSource, "api");
-  assert.equal(byKey.zakum.added, true); assert.equal(rows[0].boss.key, "will", "largest share first");
+  assert.equal(byKey.zakum.added, true);
+  assert.deepEqual(rows.map(row => row.boss.key), ["zakum", "lucid", "will"], "list keeps the catalog (boss list) order");
   const totals = bossTotals(rows);
   assert.equal(totals.weekly.cleared, 73_200_000); assert.equal(totals.weekly.planned, 73_200_000 + 29_850_000 + 4_040_000);
   assert.equal(totals.weekly.clearedCount, 1); assert.equal(totals.weekly.count, 3);

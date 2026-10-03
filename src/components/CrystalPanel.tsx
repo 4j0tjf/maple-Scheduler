@@ -50,24 +50,25 @@ export default function CrystalPanel() {
           <h2 id={`crystal-${section.cycle}`} className="text-base font-bold tracking-tight">{section.title} <span className="text-accent">{bosses.length}종</span></h2>
           <p className="text-xs text-ink-faint">{section.note}</p>
         </div>
-        <div className="overflow-x-auto"><table className="w-full min-w-[720px] table-fixed whitespace-nowrap text-left text-sm">
+        <div className="overflow-x-auto"><table className="w-full min-w-[600px] table-fixed whitespace-nowrap text-left text-sm">
           {/* 세 표(주간·월간·시즌)의 열이 같은 자리에 오도록 폭을 고정한다. */}
-          <colgroup><col className="w-[30%]" /><col className="w-[12%]" /><col className="w-[15%]" /><col className="w-[17%]" /><col className="w-[10%]" /><col className="w-[16%]" /></colgroup>
+          <colgroup><col className="w-[34%]" /><col className="w-[14%]" /><col className="w-[18%]" /><col className="w-[20%]" /><col className="w-[14%]" /></colgroup>
           <thead className="border-b border-line text-xs text-ink-muted"><tr>
             <th scope="col" className="py-2 pr-3 font-semibold">보스</th><th scope="col" className="px-3 py-2 font-semibold">난이도</th>
             <th scope="col" className="px-3 py-2 text-right font-semibold">1인 판매가</th>
             <th scope="col" className="px-3 py-2 text-right font-semibold">{party}인 파티 몫</th>
             <th scope="col" className="px-3 py-2 text-right font-semibold">9/17 대비</th>
-            <th scope="col" className="py-2 pl-3 text-right font-semibold">입장 레벨 · 최대 인원</th>
           </tr></thead>
           <tbody>{sorted.map(boss => boss.levels.map((level, index) => {
             const max = maxPartyOf(boss, level.difficulty); const size = Math.min(party, max);
             return <tr key={`${boss.key}-${level.difficulty}`} className={index === boss.levels.length - 1 ? "border-b border-line" : ""}>
               {index === 0 && <th scope="rowgroup" rowSpan={boss.levels.length} className="py-2.5 pr-3 align-middle font-normal">
                 <span className="flex items-center gap-2.5">
-                  <BossIcon boss={boss} size={boss.levels.length === 1 ? "sm" : boss.levels.length === 2 ? "lg" : boss.levels.length === 3 ? "xl" : "2xl"} />
+                  {/* 아이콘은 난이도 수와 관계없이 같은 크기로 둔다. 크기가 다르면 이름 시작 위치가 들쭉날쭉해진다. */}
+                  <BossIcon boss={boss} size="md" />
                   <span className="min-w-0">
                     <span className="block truncate font-semibold" title={boss.name}>{boss.name}</span>
+                    <span className="block text-xs tabular-nums text-ink-faint">Lv.{boss.level} · 최대 {boss.maxParty}인{boss.partyOverride ? "*" : ""}</span>
                     {boss.cycle !== "weekly" && <span className="mt-1 inline-block rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-semibold text-ink-muted">{CYCLE_LABEL[boss.cycle]}</span>}
                     {boss.note && <span className="mt-1 block whitespace-normal text-xs text-ink-faint">{boss.note}</span>}
                   </span>
@@ -78,7 +79,6 @@ export default function CrystalPanel() {
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-accent" title={`${number(shareOf(level.price, size))} 메소`}>
                 {eok(shareOf(level.price, size))}{size < party && <span className="ml-1 text-[11px] font-normal text-ink-faint">({max}인)</span>}</td>
               <td className="px-3 py-2.5 text-right text-xs tabular-nums">{change(level.price, level.previous)}</td>
-              {index === 0 && <td rowSpan={boss.levels.length} className="py-2.5 pl-3 text-right align-middle text-xs tabular-nums text-ink-muted">Lv.{boss.level} · 최대 {boss.maxParty}인{boss.partyOverride ? "*" : ""}</td>}
             </tr>;
           }))}</tbody>
         </table></div>
