@@ -1,9 +1,9 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { findBoss, levelOf, shareOf } from "@/data/bosses";
-import { apiFor, readSchedulerState, type BossState } from "./boss-plan";
+import { apiFor, hiddenBosses, readSchedulerState, type BossState } from "./boss-plan";
 import { findOcid, NexonError, nexonError, nexonGet, readBasic, type CharacterBasic } from "./nexon";
-import { periodOf } from "./period";
+import { monthStart, periodOf, weekStart } from "./period";
 
 /** 같은 캐릭터의 보스 상태는 이 시간 동안 저장본을 쓴다. 넥슨 데이터도 몇 분 늦게 반영된다. */
 export const BOSS_TTL = 5 * 60_000;
@@ -57,11 +57,14 @@ export async function syncCharacter(row: Row, key: string, force: boolean, now =
   }
 }
 
-/** 넥슨이 완료로 알려 준 보스를 이번 주기의 처치로 저장한다. 직접 체크한 처치는 넥슨 값으로 바꾼다(난이도가 실제와 다를 수 있다). */
+/**
+ * 넥슨이 완료로 알려 준 보스를 이번 주기의 처치로 저장한다. 직접 체크한 처치는 넥슨 값으로 바꾼다(난이도가 실제와 다를 수 있다).
+ * 목록에서 삭제한 보스는 저장하지 않는다.
+ */
 export async function recordApiClears(characterId: string, state: BossState, now: number) {
   const settings = new Map((await prisma.bossSetting.findMany({ where: { characterId } })).map(setting => [setting.boss, setting]));
   for (const entry of new Set(state.bosses.filter(item => item.complete && item.boss).map(item => item.boss!))) {
-    const boss = findBoss(entry); if (!boss) continue;
+    const boss = findBoss(entry); if (!boss || settings.get(boss.key)?.hidden) continue;
     const complete = apiFor(state, boss, now).complete; if (!complete) continue;
     const level = levelOf(boss, complete.difficulty); if (!level) continue;
     const period = periodOf(boss.cycle, now);
@@ -70,5 +73,18 @@ export async function recordApiClears(characterId: string, state: BossState, now
     await prisma.bossClear.upsert({ where: { characterId_period_boss: { characterId, period, boss: boss.key } },
       create: { characterId, period, boss: boss.key, partySize, ...data }, update: data });
   }
+  await releaseHidden(characterId, state, [...settings.values()].filter(setting => setting.hidden).map(setting => setting.boss), now);
+}
+/**
+ * 목록에서 삭제한 보스가 넥슨 스케줄러에서도 빠지고 이번 주기 처치도 없으면 삭제 표시를 지운다.
+ * 그래야 다음 시즌처럼 게임에서 다시 등록했을 때 목록에 다시 나온다. 축약 응답(weeklyStale)은 믿지 않으므로 그대로 둔다.
+ */
+async function releaseHidden(characterId: string, state: BossState, hidden: string[], now: number) {
+  if (state.weeklyStale || !hidden.length) return;
+  const clears = (await prisma.bossClear.findMany({ where: { characterId, boss: { in: hidden }, period: { in: [weekStart(now), monthStart(now)] } }, select: { boss: true, period: true } }))
+    .filter(row => row.period === periodOf(findBoss(row.boss)?.cycle ?? "weekly", now));
+  const listed = new Set(hiddenBosses(state, Object.fromEntries(hidden.map(boss => [boss, { hidden: true }])), Object.fromEntries(clears.map(row => [row.boss, row])), now).map(boss => boss.key));
+  const release = hidden.filter(boss => !listed.has(boss));
+  if (release.length) await prisma.bossSetting.updateMany({ where: { characterId, boss: { in: release }, hidden: true }, data: { hidden: false } });
 }
 export const crystalShare = (price: bigint | number, party: number) => shareOf(Number(price), party);

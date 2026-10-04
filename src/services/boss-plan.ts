@@ -33,7 +33,8 @@ export function readSchedulerState(data: Wire, fetchedAt: number): BossState {
     weeklyStale: !list.some(item => item?.cycle === "bossWeekly") };
 }
 
-export type BossSettingView = { difficulty: string | null; partySize: number; added: boolean };
+/** hidden: 목록에서 삭제함. 넥슨 스케줄러에 등록돼 있어도 목록·수익에서 뺀다(챌린저스 월드가 끝난 뒤에도 남는 시즌 보스 등). */
+export type BossSettingView = { difficulty: string | null; partySize: number; added: boolean; hidden?: boolean };
 export type BossClearView = { period: string; difficulty: string; partySize: number; price: number; source: "api" | "manual" };
 export type BossRow = {
   boss: Boss; difficulty: Difficulty; partySize: number; maxParty: number;
@@ -65,7 +66,7 @@ export function bossRows(state: BossState | null, settings: Record<string, BossS
     const period = periodOf(boss.cycle, now);
     const api = apiFor(state, boss, now);
     const setting = settings[boss.key]; const clear = clears[boss.key]?.period === period ? clears[boss.key] : undefined;
-    if (!api.registered && !api.complete && !setting?.added && !clear) continue;
+    if (setting?.hidden || (!api.registered && !api.complete && !setting?.added && !clear)) continue;
     const pick = [clear?.difficulty, api.complete?.difficulty, setting?.difficulty, api.registered?.difficulty].find(value => isDifficulty(value) && levelOf(boss, value));
     if (!pick) continue;
     const difficulty = pick as Difficulty;
@@ -84,6 +85,18 @@ export function bossRows(state: BossState | null, settings: Record<string, BossS
   const counted = new Set([...weekly.filter(row => row.cleared), ...weekly.filter(row => !row.cleared)].slice(0, limit));
   for (const row of weekly) row.overLimit = !counted.has(row);
   return rows;
+}
+
+/**
+ * 목록에서 삭제했지만 넥슨 스케줄러 등록·이번 주기 처치 때문에 원래는 목록에 나올 보스(되돌리기 버튼용).
+ * 여기서 빠진 보스는 삭제 표시가 더는 필요 없으므로 동기화할 때 지운다. 그래야 나중에 게임에서 다시 등록하면 목록에 다시 나온다.
+ */
+export function hiddenBosses(state: BossState | null, settings: Record<string, Pick<BossSettingView, "hidden">>, clears: Record<string, Pick<BossClearView, "period">>, now: number): Boss[] {
+  return BOSSES.filter(boss => {
+    if (!settings[boss.key]?.hidden) return false;
+    const api = apiFor(state, boss, now);
+    return !!api.registered || !!api.complete || clears[boss.key]?.period === periodOf(boss.cycle, now);
+  });
 }
 
 export type BossTotals = { weekly: { cleared: number; planned: number; count: number; clearedCount: number }; monthly: { cleared: number; planned: number } };

@@ -19,6 +19,9 @@ $environment = @($originalEnvironment | Where-Object { $_ -notmatch '^SCHEDULER_
 $logDirectory = Join-Path $project 'logs'
 [IO.Directory]::CreateDirectory($logDirectory) | Out-Null
 $switched = $false; $stopped = $false
+# next build는 빌드 폴더 이름(.next-release-…)을 tsconfig.json include에 넣는다. 배포마다 쌓여 git pull을 막으므로 빌드 뒤 원래대로 돌린다.
+$tsconfig = Join-Path $project 'tsconfig.json'
+$tsconfigBefore = [IO.File]::ReadAllBytes($tsconfig)
 Start-Transcript -Path (Join-Path $logDirectory "deploy-$stamp.log") | Out-Null
 Push-Location $project
 try {
@@ -29,6 +32,9 @@ try {
         npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
         if ($LASTEXITCODE -ne 0) { throw "의존성 복구 실패: $LASTEXITCODE" }
     }
+    # DB 변경(컬럼 추가 등)을 먼저 적용한다. 지금 도는 빌드도 그대로 쓸 수 있는 변경만 만든다.
+    npm run db:migrate
+    if ($LASTEXITCODE -ne 0) { throw "DB 변경 적용 실패: $LASTEXITCODE" }
     $env:SCHEDULER_BUILD_DIR = $release
     npm run build
     if ($LASTEXITCODE -ne 0) { npm run build }
@@ -55,4 +61,4 @@ try {
     }
     if ($stopped) { Start-Service MapleSchedulerWeb -ErrorAction Continue }
     throw $deploymentError
-} finally { Pop-Location; Stop-Transcript | Out-Null }
+} finally { [IO.File]::WriteAllBytes($tsconfig, $tsconfigBefore); Pop-Location; Stop-Transcript | Out-Null }

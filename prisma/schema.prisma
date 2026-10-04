@@ -52,7 +52,7 @@ model Character {
   @@map("characters")
 }
 
-/// 캐릭터별 보스 설정. 파티 인원과 직접 추가한 보스(게임 스케줄러에 등록하지 않은 보스)의 난이도.
+/// 캐릭터별 보스 설정. 파티 인원, 직접 추가한 보스(게임 스케줄러에 등록하지 않은 보스)의 난이도, 목록에서 삭제한 보스.
 model BossSetting {
   characterId String   @map("character_id")
   /// 보스 key(src/data/bosses.ts).
@@ -62,6 +62,9 @@ model BossSetting {
   partySize   Int      @default(1) @map("party_size")
   /// 목록에 직접 추가한 보스인지. 게임에 등록하지 않아도 목록에 남는다.
   added       Boolean  @default(false)
+  /// 목록에서 삭제한 보스인지. 게임 스케줄러에 등록돼 있어도 목록·수익에서 뺀다(챌린저스 월드가 끝난 뒤에도 남는 시즌 보스 등).
+  /// 넥슨 스케줄러에서도 빠지면 동기화할 때 풀린다.
+  hidden      Boolean  @default(false)
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)

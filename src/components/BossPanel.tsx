@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BOSSES, CYCLE_LABEL, DIFFICULTY_LABEL, levelOf, maxPartyOf, WEEKLY_BOSS_LIMIT, type Boss, type Difficulty } from "@/data/bosses";
-import { bossRows, bossTotals, type BossClearView, type BossRow, type BossSettingView, type BossState } from "@/services/boss-plan";
+import { bossRows, bossTotals, hiddenBosses, type BossClearView, type BossRow, type BossSettingView, type BossState } from "@/services/boss-plan";
 import { api, ApiError, errorText, type CharacterView } from "@/services/client";
 import { nextReset, weekLabel, weekStart } from "@/services/period";
 import BossIcon from "./BossIcon";
@@ -88,6 +88,16 @@ function AddBoss({ rows, level, onAdd }: { rows: BossRow[]; level: number | null
   </div>;
 }
 
+/** 목록에서 삭제했지만 게임 스케줄러에는 아직 남아 있는 보스. 실수로 지웠으면 되돌린다. */
+function HiddenBosses({ bosses, busy, onRestore }: { bosses: Boss[]; busy: string | null; onRestore: (boss: Boss) => void }) {
+  if (!bosses.length) return null;
+  return <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-faint">
+    <span>목록에서 삭제함(게임 스케줄러에는 남아 있음):</span>
+    {bosses.map(boss => <button key={boss.key} className="rounded-full border border-line px-2 py-0.5 text-ink-muted hover:border-accent hover:text-accent disabled:opacity-50"
+      aria-label={`${boss.name} 목록에 되돌리기`} disabled={busy === boss.key} onClick={() => onRestore(boss)}>{boss.short} 되돌리기</button>)}
+  </p>;
+}
+
 function BossTable({ rows, busy, onParty, onClear, onDifficulty, onRemove }: {
   rows: BossRow[]; busy: string | null;
   onParty: (row: BossRow, party: number) => void; onClear: (row: BossRow, cleared: boolean) => void;
@@ -110,7 +120,8 @@ function BossTable({ rows, busy, onParty, onClear, onDifficulty, onRemove }: {
         </p>
         <p className="mt-0.5 text-xs text-ink-faint">
           {[row.registered ? "게임 스케줄러 등록" : null, row.added ? "직접 추가" : null, row.overLimit ? `주간 ${WEEKLY_BOSS_LIMIT}마리 초과 · 수익 제외` : null].filter(Boolean).join(" · ")}
-          {row.added && !row.registered && !row.cleared && <button className="ml-2 text-accent hover:underline" disabled={busy === key} onClick={() => onRemove(row)}>목록에서 빼기</button>}
+          <button className="ml-2 text-ink-muted hover:text-danger hover:underline disabled:opacity-50" aria-label={`${row.boss.name} 목록에서 삭제`}
+            title={row.registered ? "게임 스케줄러에 남아 있어도 이 목록과 예상 수익에서 뺍니다." : undefined} disabled={busy === key} onClick={() => onRemove(row)}>삭제</button>
         </p>
       </div>
       <label className="col-start-2 flex items-center gap-1.5 text-xs text-ink-muted sm:col-start-auto">인원
@@ -165,7 +176,8 @@ export default function BossPanel({ characters, onCharactersChanged, onCharacter
   const selected = characters.find(row => row.id === preferred)?.id ?? characters[0]?.id ?? null;
   function choose(id: string) { setPreferred(id); try { localStorage.setItem(TAB, id); } catch { /* 이번 화면에서만 */ } }
 
-  const views = useMemo(() => new Map((data?.characters ?? []).map(row => [row.id, { row, rows: bossRows(row.state, row.settings, row.clears, now) }])), [data, now]);
+  const views = useMemo(() => new Map((data?.characters ?? []).map(row => [row.id, {
+    row, rows: bossRows(row.state, row.settings, row.clears, now), hidden: hiddenBosses(row.state, row.settings, row.clears, now) }])), [data, now]);
   const account = useMemo(() => {
     let cleared = 0, planned = 0, monthly = 0, done = 0, total = 0;
     for (const { rows } of views.values()) {
@@ -179,14 +191,14 @@ export default function BossPanel({ characters, onCharactersChanged, onCharacter
   function patchCharacter(id: string, change: (row: BossCharacter) => BossCharacter) {
     setData(current => current && { ...current, characters: current.characters.map(row => row.id === id ? change(row) : row) });
   }
-  async function act(row: BossRow, request: () => Promise<unknown>, optimistic: (character: BossCharacter) => BossCharacter) {
+  async function act(row: Pick<BossRow, "boss">, request: () => Promise<unknown>, optimistic: (character: BossCharacter) => BossCharacter) {
     if (!selected) return;
     const id = selected; const before = data; setBusy(row.boss.key); setNotice(""); patchCharacter(id, optimistic);
     try { await request(); }
     catch (failure) { setData(before); if (failure instanceof ApiError && failure.status === 401) onUnauthorized(); else setNotice(errorText(failure)); }
     finally { setBusy(null); }
   }
-  const setting = (character: BossCharacter, key: string): BossSettingView => character.settings[key] ?? { difficulty: null, partySize: 1, added: false };
+  const setting = (character: BossCharacter, key: string): BossSettingView => character.settings[key] ?? { difficulty: null, partySize: 1, added: false, hidden: false };
   const onParty = (row: BossRow, partySize: number) => act(row,
     () => api("/api/bosses", null, { method: "PATCH", body: JSON.stringify({ character: selected, boss: row.boss.key, partySize }) }),
     character => ({ ...character, settings: { ...character.settings, [row.boss.key]: { ...setting(character, row.boss.key), partySize } },
@@ -202,14 +214,16 @@ export default function BossPanel({ characters, onCharactersChanged, onCharacter
       else delete clears[row.boss.key];
       return { ...character, clears };
     });
+  // 삭제: 게임 스케줄러에 등록돼 있어도 목록에서 뺀다(챌린저스 월드가 끝난 뒤에도 넥슨 API에 남는 시즌 보스 등).
   const onRemove = (row: BossRow) => act(row,
-    () => api("/api/bosses", null, { method: "PATCH", body: JSON.stringify({ character: selected, boss: row.boss.key, added: false, difficulty: null }) }),
-    character => ({ ...character, settings: { ...character.settings, [row.boss.key]: { ...setting(character, row.boss.key), added: false, difficulty: null } } }));
-  function onAdd(boss: Boss, difficulty: Difficulty) {
-    const fake = { boss, difficulty } as BossRow;
-    void act(fake, () => api("/api/bosses", null, { method: "PATCH", body: JSON.stringify({ character: selected, boss: boss.key, added: true, difficulty }) }),
-      character => ({ ...character, settings: { ...character.settings, [boss.key]: { ...setting(character, boss.key), added: true, difficulty } } }));
-  }
+    () => api("/api/bosses", null, { method: "PATCH", body: JSON.stringify({ character: selected, boss: row.boss.key, hidden: true }) }),
+    character => ({ ...character, settings: { ...character.settings, [row.boss.key]: { ...setting(character, row.boss.key), added: false, difficulty: null, hidden: true } } }));
+  const onRestore = (boss: Boss) => act({ boss },
+    () => api("/api/bosses", null, { method: "PATCH", body: JSON.stringify({ character: selected, boss: boss.key, hidden: false }) }),
+    character => ({ ...character, settings: { ...character.settings, [boss.key]: { ...setting(character, boss.key), hidden: false } } }));
+  const onAdd = (boss: Boss, difficulty: Difficulty) => act({ boss },
+    () => api("/api/bosses", null, { method: "PATCH", body: JSON.stringify({ character: selected, boss: boss.key, added: true, difficulty }) }),
+    character => ({ ...character, settings: { ...character.settings, [boss.key]: { ...setting(character, boss.key), added: true, difficulty, hidden: false } } }));
   async function remove(character: CharacterView) {
     if (!window.confirm(`${character.name} 캐릭터를 등록 해제할까요?\n이 캐릭터의 메모, 보스 설정·처치 기록, 사냥 기록이 함께 지워지며 되돌릴 수 없습니다.`)) return;
     try { await api(`/api/characters?id=${character.id}`, null, { method: "DELETE" }); onCharactersChanged(); }
@@ -310,8 +324,9 @@ export default function BossPanel({ characters, onCharactersChanged, onCharacter
           </div>
           {view?.row.state?.weeklyStale && <p className="mb-2 rounded-lg bg-surface-2 px-3 py-2 text-xs text-ink-muted">넥슨 스케줄러에 이번 주 보스 정보가 없습니다(오래 접속하지 않은 캐릭터 등). 게임에 접속하면 몇 분 뒤 반영됩니다.</p>}
           <BossTable rows={view?.rows ?? []} busy={busy} onParty={onParty} onClear={onClear} onDifficulty={onDifficulty} onRemove={onRemove} />
-          <div className="mt-4 border-t border-line pt-4"><AddBoss rows={view?.rows ?? []} level={current.level} onAdd={onAdd} /></div>
-          <p className="mt-3 text-xs leading-relaxed text-ink-faint">게임의 스케줄러에 등록한 보스와 클리어 여부는 넥슨 Open API에서 5분마다 가져옵니다(게임 반영은 몇 분 늦을 수 있음). 아직 반영되지 않은 처치는 직접 체크하세요.
+          <HiddenBosses bosses={view?.hidden ?? []} busy={busy} onRestore={boss => void onRestore(boss)} />
+          <div className="mt-4 border-t border-line pt-4"><AddBoss rows={view?.rows ?? []} level={current.level} onAdd={(boss, difficulty) => void onAdd(boss, difficulty)} /></div>
+          <p className="mt-3 text-xs leading-relaxed text-ink-faint">게임의 스케줄러에 등록한 보스와 클리어 여부는 넥슨 Open API에서 5분마다 가져옵니다(게임 반영은 몇 분 늦을 수 있음). 아직 반영되지 않은 처치는 직접 체크하고, 실제로 잡지 않는 보스(이벤트가 끝난 시즌 보스 등)는 삭제하세요.
             주간 보스는 캐릭터당 {limit}마리까지 결정석을 팔 수 있어 몫이 큰 순서로 {limit}마리만 예상 수익에 넣습니다.</p>
         </section>
       </div>}

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { BOSSES, bossKeyOfName, findBoss, levelOf, maxPartyOf, shareOf } from "../src/data/bosses";
-import { bossRows, bossTotals, readSchedulerState, type BossState } from "../src/services/boss-plan";
+import { bossRows, bossTotals, hiddenBosses, readSchedulerState, type BossState } from "../src/services/boss-plan";
 import { monthStart, nextReset, periodOf, weekLabel, weekStart } from "../src/services/period";
 import { bucketKey, daysBetween, hourly, summarize, total, valueOf, type ProfitRecord } from "../src/services/profit";
 
@@ -85,6 +85,23 @@ test("completion from an earlier week is ignored, stored clears keep their price
   const stale: BossState = { ...lastWeek, weeklyStale: true };
   assert.equal(bossRows(stale, {}, {}, NOW).length, 0);
   assert.equal(bossRows(stale, { kaling: { difficulty: "easy", partySize: 1, added: true } }, {}, NOW)[0].difficulty, "easy");
+});
+
+test("a deleted boss stays out while the game scheduler still lists it, and the hide lifts once the game drops it", () => {
+  // 챌린저스 월드가 끝나도 넥슨 스케줄러에 남는 시즌 보스.
+  const state = readSchedulerState(wire([["시즌 보스 메이린", "hard", "bossWeekly", true, false], ["루시드", "hard", "bossWeekly", true, false]]), NOW);
+  assert.deepEqual(bossRows(state, {}, {}, NOW).map(row => row.boss.key), ["lucid", "meirin"]);
+  const hidden = { meirin: { difficulty: null, partySize: 1, added: false, hidden: true } };
+  const rows = bossRows(state, hidden, {}, NOW);
+  assert.deepEqual(rows.map(row => row.boss.key), ["lucid"]);
+  assert.equal(bossTotals(rows).weekly.planned, 59_700_000, "a deleted boss leaves expected income");
+  assert.deepEqual(hiddenBosses(state, hidden, {}, NOW).map(boss => boss.key), ["meirin"], "still in the game scheduler, so it can be restored");
+  const clear = { meirin: { period: "2026-10-01", difficulty: "hard", partySize: 1, price: 600_000_000, source: "api" as const } };
+  assert.deepEqual(bossRows(state, hidden, clear, NOW).map(row => row.boss.key), ["lucid"], "even a clear this week does not bring it back");
+  const dropped = readSchedulerState(wire([["루시드", "hard", "bossWeekly", true, false]]), NOW);
+  assert.deepEqual(hiddenBosses(dropped, hidden, {}, NOW), [], "the game dropped it, so sync can lift the hide");
+  assert.deepEqual(hiddenBosses(dropped, hidden, clear, NOW).map(boss => boss.key), ["meirin"], "a clear this week keeps the hide until the reset");
+  assert.deepEqual(hiddenBosses(state, { lucid: { hidden: false } }, {}, NOW), []);
 });
 
 test("only twelve weekly bosses count toward expected income, cleared ones first; monthly bosses are separate", () => {
