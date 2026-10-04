@@ -107,7 +107,7 @@ function BossTable({ rows, busy, onParty, onClear, onDifficulty, onRemove }: {
     목록에 보스가 없습니다. 게임의 스케줄러에 주간 보스를 등록하거나 아래에서 직접 추가하세요.</p>;
   return <ul className="divide-y divide-line">{rows.map(row => {
     const key = row.boss.key; const fromApi = row.clearSource === "api";
-    return <li key={key} className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 py-3 sm:grid-cols-[auto_minmax(0,1fr)_88px_132px_116px] ${row.overLimit ? "opacity-55" : ""}`}>
+    return <li key={key} className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 py-3 sm:grid-cols-[auto_minmax(0,1fr)_88px_132px_40px] ${row.overLimit ? "opacity-55" : ""}`}>
       <BossIcon boss={row.boss} />
       <div className="min-w-0">
         <p className="flex flex-wrap items-center gap-1.5">
@@ -134,10 +134,11 @@ function BossTable({ rows, busy, onParty, onClear, onDifficulty, onRemove }: {
         <p className={`text-sm font-bold tabular-nums ${row.cleared ? "text-accent" : ""}`} title={`${number(row.share)} 메소`}>{eok(row.share)}</p>
         <p className="text-[11px] tabular-nums text-ink-faint">{row.partySize > 1 ? `${eok(row.price)} ÷ ${row.partySize}` : "솔로 정가"}</p>
       </div>
-      <label className={`col-start-3 flex cursor-pointer items-center justify-end gap-1.5 text-xs font-semibold sm:col-start-auto ${fromApi ? "cursor-default" : ""}`}
+      <label className={`col-start-3 flex cursor-pointer items-center justify-end p-1 sm:col-start-auto ${fromApi ? "cursor-default" : ""}`}
         title={fromApi ? "넥슨 스케줄러에서 완료로 확인되었습니다." : "게임에서 잡았는데 아직 반영되지 않았으면 직접 체크하세요."}>
-        <input type="checkbox" className="size-5 accent-(--accent)" checked={row.cleared} disabled={fromApi || busy === key} onChange={event => onClear(row, event.target.checked)} />
-        <span className={row.cleared ? "text-accent" : "text-ink-muted"}>{row.cleared ? fromApi ? "클리어 ✓넥슨" : "클리어" : "미완료"}</span>
+        {/* 넥슨이 완료로 확인한 처치는 풀 수 없지만, disabled로 흐리게 하지 않고 직접 체크와 같은 색으로 보여 준다. */}
+        <input type="checkbox" className={`size-5 accent-(--accent) ${fromApi ? "pointer-events-none" : ""}`} aria-label={`${row.boss.name} 클리어`} aria-disabled={fromApi || undefined}
+          checked={row.cleared} disabled={busy === key} onChange={event => { if (!fromApi) onClear(row, event.target.checked); }} />
       </label>
     </li>;
   })}</ul>;
