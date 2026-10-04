@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { BOSSES, bossKeyOfName, findBoss, levelOf, maxPartyOf, shareOf } from "../src/data/bosses";
 import { bossRows, bossTotals, hiddenBosses, readSchedulerState, type BossState } from "../src/services/boss-plan";
 import { monthStart, nextReset, periodOf, weekLabel, weekStart } from "../src/services/period";
+import { bossIncome, incomeByMonth } from "../src/services/boss-income";
 import { bucketKey, daysBetween, hourly, summarize, total, valueOf, type ProfitRecord } from "../src/services/profit";
 
 const kst = (text: string) => Date.parse(`${text}+09:00`);
@@ -115,6 +116,42 @@ test("only twelve weekly bosses count toward expected income, cleared ones first
   const totals = bossTotals(rows);
   assert.equal(totals.weekly.count, 12); assert.equal(totals.monthly.planned, 465_000_000);
   assert.equal(rows.find(row => row.boss.key === "black_mage")!.period, "2026-10-01");
+});
+
+test("bosses cleared beyond the weekly limit do not add to this week's income", () => {
+  const weekly = BOSSES.filter(boss => boss.cycle === "weekly").slice(0, 14);
+  const clears = Object.fromEntries(weekly.map(boss => [boss.key, { period: "2026-10-01", difficulty: boss.levels[0].difficulty, partySize: 1, price: boss.levels[0].price, source: "manual" as const }]));
+  const totals = bossTotals(bossRows(null, {}, clears, NOW));
+  const shares = weekly.map(boss => boss.levels[0].price).sort((a, b) => b - a);
+  assert.equal(totals.weekly.cleared, shares.slice(0, 12).reduce((sum, value) => sum + value, 0)); assert.equal(totals.weekly.clearedCount, 14);
+});
+
+test("boss income counts each character's top twelve weekly shares, season bosses on top and monthly bosses per month", () => {
+  const weekly = BOSSES.filter(boss => boss.cycle === "weekly").slice(0, 14);
+  const clear = (characterId: string, period: string, boss: string, price: number, partySize = 1) => ({ characterId, period, boss, price, partySize });
+  const clears = weekly.map(boss => clear("a", "2026-10-01", boss.key, boss.levels.at(-1)!.price));
+  clears.push(clear("a", "2026-10-01", "meirin", 600_000_000), clear("a", "2026-10-01", "black_mage", 9_200_000_000, 2), clear("b", "2026-10-01", "lucid", 59_700_000, 3), clear("a", "2026-10-01", "unknown", 1));
+  const rows = bossIncome(clears);
+  const shares = weekly.map(boss => boss.levels.at(-1)!.price).sort((x, y) => y - x);
+  const a = rows.find(row => row.characterId === "a" && row.cycle === "weekly")!;
+  assert.equal(a.count, 13, "twelve weekly bosses + the season boss"); assert.equal(a.dropped, 2);
+  assert.equal(a.amount, shares.slice(0, 12).reduce((sum, value) => sum + value, 0) + 600_000_000);
+  assert.deepEqual(rows.find(row => row.cycle === "monthly"), { characterId: "a", period: "2026-10-01", cycle: "monthly", amount: 4_600_000_000, count: 1, dropped: 0 });
+  assert.equal(rows.find(row => row.characterId === "b")!.amount, 19_900_000, "price ÷ party, floored");
+});
+
+test("boss income groups weeks into the month their Thursday starts in, newest month first", () => {
+  const row = (period: string, amount: number, cycle: "weekly" | "monthly" = "weekly") => ({ characterId: "a", period, cycle, amount, count: 1, dropped: 0 });
+  const months = incomeByMonth([row("2026-09-24", 100), row("2026-10-01", 200), row("2026-10-01", 50), row("2026-10-29", 300), row("2026-10-01", 1000, "monthly")], kst("2026-11-03T12:00:00"));
+  assert.deepEqual(months.map(month => month.month), ["2026-11", "2026-10", "2026-09"]);
+  assert.deepEqual(months[0].weeks, [], "the week of 10/29 belongs to October"); assert.equal(months[0].total, 0);
+  const october = months[1];
+  assert.deepEqual(october.weeks.map(week => [week.start, week.amount, week.current]),
+    [["2026-10-01", 250, false], ["2026-10-08", 0, false], ["2026-10-15", 0, false], ["2026-10-22", 0, false], ["2026-10-29", 300, true]]);
+  assert.equal(october.weeks.at(-1)!.end, "2026-11-04"); assert.equal(october.weeks[0].count, 2);
+  assert.deepEqual(october.monthly, { amount: 1000, count: 1 }); assert.equal(october.total, 1550);
+  assert.deepEqual(months[2].weeks.map(week => week.start), ["2026-09-03", "2026-09-10", "2026-09-17", "2026-09-24"]);
+  assert.deepEqual(incomeByMonth([], NOW).map(month => [month.month, month.weeks.length, month.total]), [["2026-10", 1, 0]], "no records: just this month so far");
 });
 
 const record = (patch: Partial<ProfitRecord>): ProfitRecord => ({ id: "x", characterId: "c", day: "2026-10-03", startedAt: kst("2026-10-03T10:00:00"),

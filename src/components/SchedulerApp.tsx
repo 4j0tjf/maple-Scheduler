@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, errorText, type Account, type CharacterView } from "@/services/client";
 import AuthCard from "./AuthCard";
 import BossPanel from "./BossPanel";
+import BossIncomePanel from "./BossIncomePanel";
 import CrystalPanel from "./CrystalPanel";
 import HuntingDashboard from "./HuntingDashboard";
 import PasswordChange from "./PasswordChange";
@@ -16,6 +17,7 @@ import { card, smallButton } from "./ui";
  */
 const TABS = [
   { key: "bosses", label: "주간 보스", login: true, icon: "M4 20h16M6 20V9l6-5 6 5v11M10 20v-5h4v5" },
+  { key: "income", label: "보스 수익", login: true, icon: "M4 7c0 1.7 3.6 3 8 3s8-1.3 8-3-3.6-3-8-3-8 1.3-8 3ZM4 7v5c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12v5c0 1.7 3.6 3 8 3s8-1.3 8-3v-5" },
   { key: "crystals", label: "결정석 가격", login: false, icon: "M12 3 4 9l8 12 8-12-8-6ZM4 9h16M9 9l3 12 3-12" },
   { key: "hunting", label: "사냥 기록", login: true, icon: "M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM12 9v4l2.5 2.5M9 2h6" },
   { key: "profit", label: "사냥 수익", login: true, icon: "M4 20V10M10 20V4M16 20v-7M22 20H2" },
@@ -117,6 +119,9 @@ export default function SchedulerApp() {
           </div>}
           {loggedIn && <div id="panel-bosses" role="tabpanel" aria-labelledby="tab-bosses" hidden={tab !== "bosses"}>
             {tab === "bosses" && <BossPanel characters={characters} onCharactersChanged={() => void loadCharacters()} onCharacterUpdated={updateCharacter} onUnauthorized={unauthorized} />}
+          </div>}
+          {loggedIn && <div id="panel-income" role="tabpanel" aria-labelledby="tab-income" hidden={tab !== "income"}>
+            <BossIncomePanel active={tab === "income"} onUnauthorized={unauthorized} />
           </div>}
           <div id="panel-crystals" role="tabpanel" aria-labelledby="tab-crystals" hidden={tab !== "crystals"}>{tab === "crystals" && <CrystalPanel />}</div>
           {loggedIn && huntOpened && <div id="panel-hunting" role="tabpanel" aria-labelledby="tab-hunting" hidden={tab !== "hunting"}>

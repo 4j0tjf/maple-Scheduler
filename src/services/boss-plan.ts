@@ -105,7 +105,8 @@ export function bossTotals(rows: BossRow[]): BossTotals {
   const totals: BossTotals = { weekly: { cleared: 0, planned: 0, count: 0, clearedCount: 0 }, monthly: { cleared: 0, planned: 0 } };
   for (const row of rows) {
     const bucket = row.boss.cycle === "monthly" ? totals.monthly : totals.weekly;
-    if (row.cleared) bucket.cleared += row.share;
+    // 12마리를 넘겨 잡은 주간 보스는 결정석을 팔 수 없으므로 수익에 넣지 않는다(보스 수익 탭과 같은 기준).
+    if (row.cleared && !row.overLimit) bucket.cleared += row.share;
     if (!row.overLimit) bucket.planned += row.share;
     if (row.boss.cycle === "weekly") { totals.weekly.count += row.overLimit ? 0 : 1; totals.weekly.clearedCount += row.cleared ? 1 : 0; }
   }
