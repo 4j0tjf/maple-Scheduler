@@ -2,16 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BOSSES, CYCLE_LABEL, DIFFICULTY_LABEL, levelOf, maxPartyOf, WEEKLY_BOSS_LIMIT, type Boss, type Difficulty } from "@/data/bosses";
+import { incomeByMonth, type IncomeRow, type MonthIncome } from "@/services/boss-income";
 import { bossRows, bossTotals, hiddenBosses, type BossClearView, type BossRow, type BossSettingView, type BossState } from "@/services/boss-plan";
 import { api, ApiError, errorText, type CharacterView } from "@/services/client";
-import { nextReset, weekLabel, weekStart } from "@/services/period";
+import { monthStart, nextReset, weekLabel, weekStart } from "@/services/period";
 import BossIcon from "./BossIcon";
 import CharacterAvatar from "./CharacterAvatar";
-import { button, card, eok, field, number, primary, smallButton, smallField, smallPrimary } from "./ui";
+import { button, card, eok, eokShort, field, number, primary, smallButton, smallField, smallPrimary } from "./ui";
 
 type BossCharacter = { id: string; level: number | null; image: string | null; className: string | null; world: string | null;
   state: BossState | null; syncedAt: number | null; error: string | null; settings: Record<string, BossSettingView>; clears: Record<string, BossClearView> };
-type BossData = { now: number; nexon: boolean; characters: BossCharacter[] };
+type BossData = { now: number; nexon: boolean; characters: BossCharacter[]; income: IncomeRow[] };
 const TAB = "maple-scheduler-boss-tab-v1";
 const DIFF_TONE: Record<Difficulty, string> = {
   easy: "bg-surface-3 text-ink-muted", normal: "bg-info/15 text-info", hard: "bg-danger/15 text-danger",
@@ -154,6 +155,42 @@ function BossTable({ rows, busy, onParty, onClear, onDifficulty, onRemove }: {
   </>;
 }
 
+const shortDate = (date: string) => `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
+/**
+ * 계정 전체 결정석 수익 종합. 한 달의 주(목~수)별 수익과 월간 보스, 그 달 총 수익. 이번 주가 든 달을 먼저 보이고 ‹ ›로 지난 달을 본다.
+ * 주는 시작일(목요일)이 속한 달에 넣는다(10/29~11/4 주는 10월).
+ */
+function IncomeSummary({ months, now }: { months: MonthIncome[]; now: number }) {
+  const home = Math.max(0, months.findIndex(month => month.weeks.some(week => week.current)));
+  const [offset, setOffset] = useState(0);
+  const index = Math.min(months.length - 1, Math.max(0, home + offset)); const month = months[index];
+  if (!month) return null;
+  const title = Number(month.month.slice(5, 7));
+  const range = month.weeks.length ? `${shortDate(month.weeks[0].start)} ~ ${shortDate(month.weeks.at(-1)!.end)}` : "";
+  const value = (amount: number) => <span className="font-semibold tabular-nums" title={`${number(amount)} 메소`}>{amount > 0 ? eokShort(amount) : "-"}</span>;
+  const arrow = "grid size-6 place-items-center rounded-md text-ink-muted hover:bg-surface-3 hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent";
+  return <section className={card} aria-labelledby="income-title">
+    <div className="flex items-center justify-between gap-2">
+      <h2 id="income-title" className="text-sm font-bold">종합 <span className="font-medium text-ink-muted">({range})</span></h2>
+      <div className="flex gap-0.5">
+        <button type="button" className={arrow} aria-label="지난 달" disabled={index >= months.length - 1} onClick={() => setOffset(index + 1 - home)}>‹</button>
+        <button type="button" className={arrow} aria-label="다음 달" disabled={index <= 0} onClick={() => setOffset(index - 1 - home)}>›</button>
+      </div>
+    </div>
+    <ul className="mt-2 space-y-1.5 text-sm">
+      {month.weeks.map(week => <li key={week.start} className="flex items-baseline justify-between gap-2">
+        <span className={week.current ? "font-semibold text-info" : "text-ink-muted"}>{shortDate(week.start)} ~ {shortDate(week.end)}{week.current && <span className="ml-1 text-xs">(이번 주)</span>}</span>
+        {value(week.amount)}
+      </li>)}
+      <li className="flex items-baseline justify-between gap-2"><span className="font-semibold text-accent">월간 보스</span>{value(month.monthly)}</li>
+    </ul>
+    <p className="mt-3 flex items-baseline justify-between gap-2 border-t border-line pt-3">
+      <span className="text-sm font-bold">{month.month === monthStart(now).slice(0, 7) ? "이번 달" : `${title}월`} 총 수익</span>
+      <span className="text-lg font-bold tabular-nums text-accent" title={`${number(month.total)} 메소`}>{month.total > 0 ? eokShort(month.total) : "-"}</span>
+    </p>
+  </section>;
+}
+
 /**
  * 주간 보스 탭. 등록한 캐릭터를 탭으로 보여주고, 캐릭터마다 이미지·레벨·메모와 주간 보스 목록(얼굴·이름·인원·결정석 몫·클리어)을 둔다.
  * 보스 목록과 클리어 여부는 넥슨 스케줄러 API(게임의 스케줄러 등록 상태)에서 가져오고, 직접 추가·체크도 할 수 있다.
@@ -198,6 +235,14 @@ export default function BossPanel({ characters, onCharactersChanged, onCharacter
     }
     return { cleared, planned, monthly, done, total };
   }, [views]);
+  // 종합 표. 지난 주기는 저장된 처치 기록, 이번 주·이번 달은 위 합계(방금 체크한 처치 포함)와 같은 값을 쓴다.
+  const months = useMemo(() => {
+    if (!data) return [];
+    const week = weekStart(now); const month = monthStart(now);
+    const past = data.income.filter(row => row.period !== (row.cycle === "monthly" ? month : week));
+    return incomeByMonth([...past, { characterId: "", period: week, cycle: "weekly", amount: account.cleared, count: 0, dropped: 0 },
+      { characterId: "", period: month, cycle: "monthly", amount: account.monthly, count: 0, dropped: 0 }], now);
+  }, [data, now, account]);
 
   function patchCharacter(id: string, change: (row: BossCharacter) => BossCharacter) {
     setData(current => current && { ...current, characters: current.characters.map(row => row.id === id ? change(row) : row) });
@@ -307,8 +352,8 @@ export default function BossPanel({ characters, onCharactersChanged, onCharacter
         })}
       </div>
 
-      {current && <div id="boss-panel" role="tabpanel" aria-labelledby={`boss-tab-${current.id}`} className="grid items-start gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <section className={card} aria-label={`${current.name} 정보`}>
+      {current && <div id="boss-panel" role="tabpanel" aria-labelledby={`boss-tab-${current.id}`} className="grid items-start gap-6 lg:grid-cols-[300px_minmax(0,1fr)] lg:grid-rows-[auto_1fr]">
+        <section className={`${card} lg:col-start-1 lg:row-start-1`} aria-label={`${current.name} 정보`}>
           <div className="flex flex-col items-center text-center">
             <CharacterAvatar name={current.name} image={current.image} size="xl" />
             <h2 className="mt-2 text-xl font-bold tracking-tight">{current.name}</h2>
@@ -327,7 +372,7 @@ export default function BossPanel({ characters, onCharactersChanged, onCharacter
           </div>
         </section>
 
-        <section className={card} aria-labelledby="boss-list-title">
+        <section className={`${card} lg:col-start-2 lg:row-span-2 lg:row-start-1`} aria-labelledby="boss-list-title">
           <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
             <h2 id="boss-list-title" className="text-base font-bold tracking-tight">보스 <span className="text-accent">목록</span>
               <span className="ml-2 align-middle text-xs font-medium text-ink-muted">주간 {totals?.weekly.count ?? 0}/{limit}마리 · 예상 {eok(totals?.weekly.planned ?? 0)}</span></h2>
@@ -340,6 +385,8 @@ export default function BossPanel({ characters, onCharactersChanged, onCharacter
           <p className="mt-3 text-xs leading-relaxed text-ink-faint">게임의 스케줄러에 등록한 보스와 클리어 여부는 넥슨 Open API에서 5분마다 가져옵니다(게임 반영은 몇 분 늦을 수 있음). 아직 반영되지 않은 처치는 직접 체크하고, 실제로 잡지 않는 보스(이벤트가 끝난 시즌 보스 등)는 삭제하세요.
             주간 보스는 캐릭터당 {limit}마리까지 결정석을 팔 수 있어 몫이 큰 순서로 {limit}마리만 예상 수익에 넣습니다.</p>
         </section>
+        {/* 넓은 화면에서는 캐릭터 정보 아래 빈 곳, 좁은 화면에서는 보스 목록 아래. */}
+        <div className="lg:col-start-1 lg:row-start-2"><IncomeSummary months={months} now={now} /></div>
       </div>}
     </>}
   </div>;
