@@ -105,7 +105,7 @@ function BossTable({ rows, busy, onParty, onClear, onDifficulty, onRemove }: {
 }) {
   if (!rows.length) return <p className="rounded-xl border border-dashed border-line-strong bg-surface-2 px-4 py-8 text-center text-sm text-ink-muted">
     목록에 보스가 없습니다. 게임의 스케줄러에 주간 보스를 등록하거나 아래에서 직접 추가하세요.</p>;
-  return <ul className="divide-y divide-line">{rows.map(row => {
+  const item = (row: BossRow) => {
     const key = row.boss.key; const fromApi = row.clearSource === "api";
     return <li key={key} className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 py-3 sm:grid-cols-[auto_minmax(0,1fr)_88px_132px_40px] ${row.overLimit ? "opacity-55" : ""}`}>
       <BossIcon boss={row.boss} />
@@ -116,7 +116,7 @@ function BossTable({ rows, busy, onParty, onClear, onDifficulty, onRemove }: {
             onChange={event => onDifficulty(row, event.target.value as Difficulty)} className="rounded-full border border-line bg-surface-2 px-1.5 py-0.5 text-[11px] font-semibold">
             {row.boss.levels.map(item => <option key={item.difficulty} value={item.difficulty}>{DIFFICULTY_LABEL[item.difficulty]}</option>)}
           </select> : <DifficultyChip difficulty={row.difficulty} />}
-          {row.boss.cycle !== "weekly" && <span className="rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-semibold text-ink-muted">{CYCLE_LABEL[row.boss.cycle]}</span>}
+          {row.boss.cycle === "season" && <span className="rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-semibold text-ink-muted">{CYCLE_LABEL[row.boss.cycle]}</span>}
         </p>
         <p className="mt-0.5 text-xs text-ink-faint">
           {[row.registered ? "게임 스케줄러 등록" : null, row.added ? "직접 추가" : null, row.overLimit ? `주간 ${WEEKLY_BOSS_LIMIT}마리 초과 · 수익 제외` : null].filter(Boolean).join(" · ")}
@@ -141,7 +141,17 @@ function BossTable({ rows, busy, onParty, onClear, onDifficulty, onRemove }: {
           checked={row.cleared} disabled={busy === key} onChange={event => { if (!fromApi) onClear(row, event.target.checked); }} />
       </label>
     </li>;
-  })}</ul>;
+  };
+  // 월간 보스(검은 마법사)는 초기화 주기와 12마리 제한이 달라 맨 아래에 따로 둔다.
+  const weekly = rows.filter(row => row.boss.cycle !== "monthly"); const monthly = rows.filter(row => row.boss.cycle === "monthly");
+  return <>
+    {weekly.length > 0 && <ul className="divide-y divide-line">{weekly.map(item)}</ul>}
+    {monthly.length > 0 && <section aria-label="월간 보스" className={weekly.length ? "mt-2 border-t-2 border-line pt-3" : ""}>
+      <p className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs"><span className="font-bold text-ink-muted">월간 보스</span>
+        <span className="text-ink-faint">매월 1일 0시 초기화 · 주간 {WEEKLY_BOSS_LIMIT}마리와 따로 셈</span></p>
+      <ul className="divide-y divide-line">{monthly.map(item)}</ul>
+    </section>}
+  </>;
 }
 
 /**
