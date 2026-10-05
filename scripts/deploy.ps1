@@ -35,6 +35,9 @@ try {
     # DB 변경(컬럼 추가 등)을 먼저 적용한다. 지금 도는 빌드도 그대로 쓸 수 있는 변경만 만든다.
     npm run db:migrate
     if ($LASTEXITCODE -ne 0) { throw "DB 변경 적용 실패: $LASTEXITCODE" }
+    # tsconfig.json은 기본 빌드 폴더(.next)의 타입 파일도 검사한다. 예전 빌드가 남긴 타입 파일이 지금은 없는 화면·API를 가리키면
+    # 타입 검사가 실패하므로 지운다(빌드·개발 서버가 다시 만든다). 서비스는 .next-release-… 폴더를 쓰므로 영향이 없다.
+    foreach ($stale in @('.next\types', '.next\dev\types')) { Remove-Item -LiteralPath (Join-Path $project $stale) -Recurse -Force -ErrorAction SilentlyContinue }
     $env:SCHEDULER_BUILD_DIR = $release
     npm run build
     if ($LASTEXITCODE -ne 0) { npm run build }
