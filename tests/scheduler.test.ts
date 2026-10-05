@@ -140,18 +140,18 @@ test("boss income counts each character's top twelve weekly shares, season bosse
   assert.equal(rows.find(row => row.characterId === "b")!.amount, 19_900_000, "price ÷ party, floored");
 });
 
-test("boss income groups weeks into the month their Thursday starts in, newest month first", () => {
+test("boss income groups every week into the month its Thursday starts in, newest month first", () => {
   const row = (period: string, amount: number, cycle: "weekly" | "monthly" = "weekly") => ({ characterId: "a", period, cycle, amount, count: 1, dropped: 0 });
   const months = incomeByMonth([row("2026-09-24", 100), row("2026-10-01", 200), row("2026-10-01", 50), row("2026-10-29", 300), row("2026-10-01", 1000, "monthly")], kst("2026-11-03T12:00:00"));
   assert.deepEqual(months.map(month => month.month), ["2026-11", "2026-10", "2026-09"]);
-  assert.deepEqual(months[0].weeks, [], "the week of 10/29 belongs to October"); assert.equal(months[0].total, 0);
+  assert.deepEqual(months[0].weeks.map(week => [week.start, week.amount]), [["2026-11-05", 0], ["2026-11-12", 0], ["2026-11-19", 0], ["2026-11-26", 0]], "the week of 10/29 belongs to October; later weeks show as empty");
   const october = months[1];
   assert.deepEqual(october.weeks.map(week => [week.start, week.amount, week.current]),
     [["2026-10-01", 250, false], ["2026-10-08", 0, false], ["2026-10-15", 0, false], ["2026-10-22", 0, false], ["2026-10-29", 300, true]]);
-  assert.equal(october.weeks.at(-1)!.end, "2026-11-04"); assert.equal(october.weeks[0].count, 2);
-  assert.deepEqual(october.monthly, { amount: 1000, count: 1 }); assert.equal(october.total, 1550);
+  assert.equal(october.weeks.at(-1)!.end, "2026-11-04");
+  assert.equal(october.monthly, 1000); assert.equal(october.total, 1550);
   assert.deepEqual(months[2].weeks.map(week => week.start), ["2026-09-03", "2026-09-10", "2026-09-17", "2026-09-24"]);
-  assert.deepEqual(incomeByMonth([], NOW).map(month => [month.month, month.weeks.length, month.total]), [["2026-10", 1, 0]], "no records: just this month so far");
+  assert.deepEqual(incomeByMonth([], NOW).map(month => [month.month, month.weeks.length, month.total]), [["2026-10", 5, 0]], "no records: this month only");
 });
 
 const record = (patch: Partial<ProfitRecord>): ProfitRecord => ({ id: "x", characterId: "c", day: "2026-10-03", startedAt: kst("2026-10-03T10:00:00"),

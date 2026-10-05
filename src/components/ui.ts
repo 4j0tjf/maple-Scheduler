@@ -21,6 +21,9 @@ export const eok = (value: number | null | undefined) => {
   const high = Math.floor(man / 10_000); const rest = man % 10_000;
   return high ? `${high.toLocaleString("ko-KR")}억${rest ? ` ${rest.toLocaleString("ko-KR")}만` : ""}` : `${rest.toLocaleString("ko-KR")}만`;
 };
+/** 좁은 칸용 짧은 메소. 1억 이상은 소수 첫째 자리 억(10.9억, 버림), 그 아래는 만(8,960만). */
+export const eokShort = (value: number) => value >= 100_000_000
+  ? `${(Math.floor(value / 10_000_000) / 10).toLocaleString("ko-KR")}억` : `${Math.floor(value / 10_000).toLocaleString("ko-KR")}만`;
 /** 걸리는 시간을 "4시간 52분"으로(분 아래는 버림). */
 export const hoursText = (ms: number) => {
   const minutes = Math.floor(ms / 60_000); const hours = Math.floor(minutes / 60);

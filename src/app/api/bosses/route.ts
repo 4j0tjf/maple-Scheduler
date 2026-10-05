@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { findBoss, isDifficulty, levelOf, maxPartyOf } from "@/data/bosses";
 import { denied, json, LOGIN_REQUIRED, readJson, sameSite, sessionAccount } from "@/services/access";
+import { bossIncome } from "@/services/boss-income";
 import { apiKey, syncCharacter } from "@/services/character-sync";
-import { monthStart, periodOf, weekStart } from "@/services/period";
+import { periodOf } from "@/services/period";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
 /**
  * 계정의 모든 캐릭터의 주간 보스 상태. 넥슨 스케줄러 저장본이 5분보다 오래됐으면 새로 받는다(?refresh=1이면 30초).
  * ?character=<id>를 주면 그 캐릭터만 새로 받는다. 이번 주·이번 달 처치 기록과 보스 설정을 함께 돌려준다.
+ * income은 지난 기록까지 모든 처치를 캐릭터·주기(주·달)별 수익으로 묶은 것이다(종합 표). 이번 주기 값은 화면이 보스 목록으로 다시 계산한다.
  */
 export async function GET(request: Request) {
   const url = new URL(request.url); const force = url.searchParams.get("refresh") === "1"; const only = url.searchParams.get("character");
@@ -25,9 +27,10 @@ export async function GET(request: Request) {
     const [characters, settings, clears] = await Promise.all([
       prisma.character.findMany({ where: { id: { in: ids } }, select: { id: true, level: true, image: true, className: true, world: true, bossState: true, bossSyncedAt: true } }),
       prisma.bossSetting.findMany({ where: { characterId: { in: ids } } }),
-      prisma.bossClear.findMany({ where: { characterId: { in: ids }, period: { in: [weekStart(now), monthStart(now)] } } }),
+      prisma.bossClear.findMany({ where: { characterId: { in: ids } } }),
     ]);
-    return json({ now, nexon: !!key, characters: characters.map(character => ({
+    const income = bossIncome(clears.map(row => ({ characterId: row.characterId, period: row.period, boss: row.boss, price: Number(row.price), partySize: row.partySize })));
+    return json({ now, nexon: !!key, income, characters: characters.map(character => ({
       id: character.id, level: character.level, image: character.image, className: character.className, world: character.world,
       state: character.bossState, syncedAt: character.bossSyncedAt?.getTime() ?? null, error: errors.get(character.id) ?? null,
       settings: Object.fromEntries(settings.filter(row => row.characterId === character.id).map(row => [row.boss, { difficulty: row.difficulty, partySize: row.partySize, added: row.added, hidden: row.hidden }])),
