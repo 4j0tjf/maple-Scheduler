@@ -11,7 +11,7 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 const notoSansKr = Noto_Sans_KR({ variable: "--font-noto-sans-kr", preload: false });
 
 export const metadata: Metadata = {
-  title: "스케줄러 · 스마트 메라이프",
+  title: "스케줄러 · 메라이프",
   description: "등록한 캐릭터의 주간 보스·결정석 수익과 사냥 기록·수익을 한곳에서 관리한다",
 };
 
