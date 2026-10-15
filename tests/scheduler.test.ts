@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { BOSSES, bossKeyOfName, findBoss, levelOf, maxPartyOf, shareOf } from "../src/data/bosses";
 import { bossRows, bossTotals, hiddenBosses, readSchedulerState, type BossState } from "../src/services/boss-plan";
-import { monthStart, nextReset, periodOf, weekLabel, weekStart } from "../src/services/period";
+import { closingDays, monthStart, nextReset, periodOf, weekLabel, weekStart } from "../src/services/period";
 import { bossIncome, incomeByMonth } from "../src/services/boss-income";
 import { bucketKey, daysBetween, hourly, summarize, total, valueOf, type ProfitRecord } from "../src/services/profit";
 
@@ -22,6 +22,13 @@ test("weekly bosses reset on Thursday 00:00 KST and monthly bosses on the 1st", 
   assert.equal(nextReset("weekly", kst("2026-10-03T12:00:00")), kst("2026-10-08T00:00:00"));
   assert.equal(nextReset("monthly", kst("2026-12-15T12:00:00")), kst("2027-01-01T00:00:00"));
   assert.equal(weekLabel("2026-10-01"), "10/1(목) ~ 10/7(수)");
+});
+
+test("past-date lookups ask for each week's Wednesday and each month's last day within yesterday..13 days ago", () => {
+  assert.deepEqual(closingDays(kst("2026-10-15T10:00:00")), ["2026-10-07", "2026-10-14"], "Thursday: last week's Wednesday is yesterday");
+  assert.deepEqual(closingDays(kst("2026-10-03T12:00:00")), ["2026-09-23", "2026-09-30"], "9/30 is both a Wednesday and a month end");
+  assert.deepEqual(closingDays(kst("2026-11-02T00:30:00")), ["2026-10-21", "2026-10-28", "2026-10-31"]);
+  assert.deepEqual(closingDays(kst("2026-10-15T00:00:00")), closingDays(kst("2026-10-15T23:59:59")), "uses the Korean date");
 });
 
 test("boss catalog is consistent and matches Nexon names regardless of spacing", () => {
