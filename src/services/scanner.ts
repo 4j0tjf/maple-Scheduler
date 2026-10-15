@@ -105,6 +105,86 @@ export function readItemCount(frame: Pixels, icon: Box): number | null {
 }
 
 /**
+ * HEXA 매트릭스 '보유한 재료' 작은 창의 숫자(높이 5px 흰 글자). 'o' 흰색, '.' 흰색 아님.
+ * 0·1·2·6·9·/는 2026-10 KMS 화면에서 떴다. 3·4·5·7·8은 같은 글꼴 모양으로 그린 것이라 실제와 다를 수 있다.
+ * 다르면 그 숫자가 든 개수를 못 읽을(null) 뿐 다른 숫자로 읽지는 않는다. 그럴듯한 모양이 둘이면 둘 다 둔다.
+ */
+export const HEXA_DIGITS: Record<string, string[][]> = {
+  "0": [[".ooo.", "o...o", "o...o", "o...o", ".ooo."]],
+  "1": [["oo", ".o", ".o", ".o", ".o"]],
+  "2": [["oooo.", "....o", ".oooo", "o....", "ooooo"]],
+  "3": [["oooo.", "....o", ".ooo.", "....o", "oooo."], ["oooo.", "....o", "..oo.", "....o", "oooo."]],
+  "4": [["o..o.", "o..o.", "ooooo", "...o.", "...o."], ["...o.", "..oo.", ".o.o.", "ooooo", "...o."]],
+  "5": [["ooooo", "o....", "oooo.", "....o", "oooo."]],
+  "6": [[".ooo.", "o....", "oooo.", "o...o", ".ooo."]],
+  "7": [["ooooo", "....o", "...o.", "..o..", "..o.."], ["ooooo", "....o", "...o.", "..o..", ".o..."]],
+  "8": [[".ooo.", "o...o", ".ooo.", "o...o", ".ooo."]],
+  "9": [[".ooo.", "o...o", ".oooo", "....o", ".ooo."]],
+  "/": [["....o", "...o.", "..o..", ".o...", "o...."]],
+};
+export type HexaFragments = { count: number; slash: Box; region: Box };
+/**
+ * HEXA 매트릭스 '보유한 재료' 작은 창(HEXA 매트릭스의 보유 재료 옆 버튼으로 띄운다)의 솔 에르다 조각 개수.
+ * 왼쪽 칸은 솔 에르다 기운 "966 / 1000", 오른쪽 칸이 조각 개수다. 조각이 0개여도 0으로 나온다.
+ * 아이콘은 반짝일 수 있어 기운 칸의 "/"와 그 뒤 최대치로 창을 찾고, 같은 줄 오른쪽 칸("/"에서 약 40~110px)의 숫자를 읽는다.
+ * 칸 가운데 정렬이라 자리 수에 따라 위치가 바뀐다. 모르는 글자가 있거나 숫자 무리가 둘 이상이면 null. 원래 크기(100%) 화면만.
+ */
+export function readHexaFragments(frame: Pixels, last?: Box | null): HexaFragments | null {
+  const white = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= frame.width || y >= frame.height) return false;
+    const i = (y * frame.width + x) * 4;
+    return frame.data[i] > 180 && frame.data[i + 1] > 180 && frame.data[i + 2] > 180;
+  };
+  const lit = (x: number, y: number) => white(x, y) || white(x, y + 1) || white(x, y + 2) || white(x, y + 3) || white(x, y + 4);
+  /** [from, to)에서 흰 픽셀이 있는 세로줄을 묶어 글자로 나눈다. 모양이 맞는 글자가 없으면 text는 null. */
+  const glyphs = (y: number, from: number, to: number) => {
+    const found: { x: number; end: number; text: string | null }[] = [];
+    for (let x = from; x < to; x++) {
+      if (!lit(x, y)) continue;
+      let end = x;
+      while (end + 1 < to && lit(end + 1, y)) end++;
+      const rows = [0, 1, 2, 3, 4].map(dy => Array.from({ length: end - x + 1 }, (_, dx) => white(x + dx, y + dy) ? "o" : ".").join(""));
+      found.push({ x, end, text: Object.keys(HEXA_DIGITS).find(key => HEXA_DIGITS[key].some(shape => shape.every((row, i) => row === rows[i]))) ?? null });
+      x = end;
+    }
+    return found;
+  };
+  /** 붙어 있는(글자 사이 3px 이하) 숫자 무리. 숫자가 아니면 null. */
+  const number = (run: ReturnType<typeof glyphs>) =>
+    run.length && run.every((glyph, i) => glyph.text && glyph.text !== "/" && (i === 0 || glyph.x - run[i - 1].end <= 4)) ? run.map(glyph => glyph.text).join("") : null;
+  // (x, y)는 "/"의 오른쪽 위 픽셀.
+  const read = (x: number, y: number): HexaFragments | null => {
+    for (let dy = 0; dy < 5; dy++) for (let dx = 0; dx < 5; dx++) if (white(x - 4 + dx, y + dy) !== (dx === 4 - dy)) return null;
+    const after = glyphs(y, x + 1, x + 40);
+    const gap = after.findIndex((glyph, i) => i > 0 && glyph.x - after[i - 1].end > 4);
+    const maximum = after.slice(0, gap < 0 ? after.length : gap);
+    if (!maximum.length || maximum[0].x - x > 6 || !number(maximum)) return null;
+    const run = glyphs(y, maximum[maximum.length - 1].end + 5, x + 115), text = number(run);
+    if (!text) return null;
+    const left = run[0].x, right = run[run.length - 1].end;
+    // 숫자 바로 위·아래 줄은 보라색 바탕이다. 더 큰 글자의 일부를 숫자로 읽지 않는다.
+    for (let px = left - 1; px <= right + 1; px++) if (white(px, y - 1) || white(px, y + 5)) return null;
+    const count = parseCount(text);
+    return count == null ? null : { count, slash: { x: x - 4, y, w: 5, h: 5 }, region: { x: left - 30, y: y - 8, w: right - left + 61, h: 21 } };
+  };
+  if (last) { const found = read(last.x + 4, last.y); if (found) return found; }
+  for (let y = 0; y + 5 <= frame.height; y++) for (let x = 4; x < frame.width; x++) {
+    if (!white(x, y) || !white(x - 1, y + 1) || !white(x - 4, y + 4)) continue;
+    const found = read(x, y);
+    if (found) return found;
+  }
+  return null;
+}
+/**
+ * 조각 개수: 인벤토리 조각 칸 합계를 먼저 쓰고, 인벤토리에 조각 칸이 없거나 개수를 못 읽으면 HEXA '보유한 재료' 창의 개수를 쓴다.
+ * 인벤토리에 조각 칸이 없다는 것만으로는 0개인지 다른 탭이 열렸는지 알 수 없지만, 보유한 재료 창은 0개도 0으로 보여 준다.
+ */
+export function fragmentReading(inventory: { stacks: Box[]; total: number | null } | null, hexa: HexaFragments | null) {
+  const count = inventory?.total ?? hexa?.count ?? null;
+  return { count, visible: !!inventory?.stacks.length || !!hexa, fromHexa: inventory?.total == null && !!hexa };
+}
+
+/**
  * 사냥터 이름으로 쓸 만한 글자인지. 한글 2자 이상, 숫자·시간만으로 된 글자는 제외하고 30자로 자른다.
  * 앞쪽의 한글 없는 조각("ELH] 미슈피라의 눈"처럼 미니맵 아이콘을 읽은 것)은 뗀다. 뒤쪽 숫자(군락 1)는 사냥터 구분이라 둔다.
  */

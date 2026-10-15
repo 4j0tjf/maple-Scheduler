@@ -1,10 +1,12 @@
-import { countStacks, findIcons, findInventory, findMapHeader, readBuffMinutes, overlap, type Box, type MapHeader, type Pixels } from "./scanner";
+import { countStacks, findIcons, findInventory, findMapHeader, readBuffMinutes, readHexaFragments, overlap, type Box, type MapHeader, type Pixels } from "./scanner";
 
 export type PixelRequest = { pixels: Pixels; icons: Record<"small" | "large" | "fragment" | "meso" | "point", Pixels> };
 export type SearchState = { width: number; height: number; stripe: number; layout: ReturnType<typeof findInventory>; buff: { kind: "small" | "large"; region: Box } | null;
   /** 지난번에 찾은 미니맵 지도 아이콘. */
-  mapIcon: Box | null };
-export const createSearchState = (): SearchState => ({ width: 0, height: 0, stripe: 0, layout: null, buff: null, mapIcon: null });
+  mapIcon: Box | null;
+  /** 지난번에 찾은 HEXA 보유한 재료 창의 "/" 위치. */
+  hexa: Box | null };
+export const createSearchState = (): SearchState => ({ width: 0, height: 0, stripe: 0, layout: null, buff: null, mapIcon: null, hexa: null });
 /**
  * 미니맵 머리글은 지난번 자리 → 화면 왼쪽 위 → 화면 위쪽 절반 순서로 찾는다.
  * 모니터 전체를 공유하면 게임 창(과 미니맵)이 화면 왼쪽 위에 있지 않아 왼쪽 위만 보면 사냥터를 못 읽었다.
@@ -30,6 +32,9 @@ export function analyzePixels({ pixels, icons }: PixelRequest, state?: SearchSta
   }
   if (state) state.layout = layout;
   const fragments = layout ? countStacks(pixels, icons.fragment, layout.panel, layout.scale) : null;
+  // 인벤토리와 따로 화면 어디에 있든 찾는다. 인벤토리를 닫아도, 조각이 0개여도 개수가 보인다.
+  const hexa = readHexaFragments(pixels, state?.hexa);
+  if (state) state.hexa = hexa?.slash ?? null;
   const header = locateMapHeader(pixels, state);
   const area = { x: 0, y: 0, w: pixels.width, h: Math.min(pixels.height * .3, 300) };
   const savedBuff = state?.buff;
@@ -39,6 +44,6 @@ export function analyzePixels({ pixels, icons }: PixelRequest, state?: SearchSta
     findIcons(pixels, icons[kind], area, [.75, 1, 1.25, 1.5, 2, 2.5], layout ? [layout.panel] : [], 3, 34).map(region => ({ kind, region })));
   const buff = candidates.length === 1 ? candidates[0] : null;
   if (state) state.buff = buff;
-  return { layout, fragments, header, buff, minuteTimer: buff ? readBuffMinutes(pixels, buff.region, buff.kind) : null };
+  return { layout, fragments, hexa, header, buff, minuteTimer: buff ? readBuffMinutes(pixels, buff.region, buff.kind) : null };
 }
 export type PixelResult = ReturnType<typeof analyzePixels>;
