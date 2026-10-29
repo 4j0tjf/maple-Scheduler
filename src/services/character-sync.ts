@@ -1,9 +1,9 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { findBoss, levelOf, shareOf } from "@/data/bosses";
-import { apiFor, hiddenBosses, readSchedulerState, type BossState } from "./boss-plan";
+import { BOSSES, findBoss, levelOf, shareOf } from "@/data/bosses";
+import { apiFor, groupOf, hiddenBosses, judgeState, readSchedulerState, settleState, type BossState, type Group } from "./boss-plan";
 import { findOcid, NexonError, nexonError, nexonGet, readBasic, type CharacterBasic } from "./nexon";
-import { monthStart, periodOf, weekStart } from "./period";
+import { addDays, koreaDate, monthStart, periodOf, weekStart } from "./period";
 
 /** 같은 캐릭터의 보스 상태는 이 시간 동안 저장본을 쓴다. 넥슨 데이터도 몇 분 늦게 반영된다. */
 export const BOSS_TTL = 5 * 60_000;
@@ -46,8 +46,12 @@ export async function syncCharacter(row: Row, key: string, force: boolean, now =
       const basic = readBasic(await nexonGet<Record<string, unknown>>(`/character/basic?ocid=${encodeURIComponent(ocid)}`, key));
       await prisma.character.update({ where: { id: row.id }, data: basicData(basic, at) });
     }
-    const state = readSchedulerState(await nexonGet(`/scheduler/character-state?ocid=${encodeURIComponent(ocid)}`, key), now);
-    await prisma.character.update({ where: { id: row.id }, data: { bossState: state, bossSyncedAt: at } });
+    const raw = readSchedulerState(await nexonGet(`/scheduler/character-state?ocid=${encodeURIComponent(ocid)}`, key), now);
+    const saved = await prisma.character.findUnique({ where: { id: row.id }, select: { activeDay: true, bossState: true } });
+    const activeDay = raw.loggedIn ? koreaDate(now) : saved?.activeDay ?? null;
+    // 주기가 바뀐 뒤 아직 접속하지 않았으면 넥슨이 보내는 지난 주기 완료 표시를 지우고, 그것으로 잘못 남긴 이번 주기 처치 기록도 지운다.
+    const state = await settle(row.id, raw, activeDay, saved?.bossState as BossState | null, () => true);
+    await prisma.character.update({ where: { id: row.id }, data: { bossState: state, bossSyncedAt: at, activeDay } });
     await recordApiClears(row.id, state, now);
     await releaseHidden(row.id, state, now);
     return null;
@@ -56,6 +60,30 @@ export async function syncCharacter(row: Row, key: string, force: boolean, now =
     if (error instanceof NexonError && ["OPENAPI00003", "OPENAPI00004"].includes(error.code ?? "")) await prisma.character.update({ where: { id: row.id }, data: { ocid: null } }).catch(() => {});
     return syncError(error);
   }
+}
+
+/**
+ * 그 상태(그날 기준)를 이번 주기 기준으로 정리한다. 지난 주기 완료 표시인 주기(judgeState)는 완료를 지운다.
+ * stale(주기가 바뀐 뒤 접속한 날이 없다고 확인됨)이고 drop이 허락하면 그 주기의 넥슨 처치 기록도 지운다(지난 주기 것을 잘못 센 것이다).
+ * stored는 화면 동기화에서 저장해 둔 지난 상태로, 지난 주기 마지막 날의 조회를 아직 못 받았을 때(결산 중) 대신 쓴다.
+ */
+export async function settle(characterId: string, raw: BossState, activeDay: string | null, stored: BossState | null, drop: (group: Group) => boolean) {
+  const at = raw.fetchedAt;
+  const closes: Record<Group, string> = { weekly: addDays(weekStart(at), -1), monthly: addDays(monthStart(at), -1) };
+  const from = [closes.weekly, closes.monthly].sort()[0];
+  const rows = await prisma.bossSnapshot.findMany({ where: { characterId, date: { gte: from, lte: koreaDate(at) } }, select: { date: true, state: true } });
+  const snapshots = new Map(rows.map(row => [row.date, row.state as BossState]));
+  const activity = new Map<string, boolean>();
+  for (const [date, state] of snapshots) if (typeof state?.loggedIn === "boolean") activity.set(date, state.loggedIn);
+  if (activeDay && activeDay >= from) activity.set(activeDay, true);
+  const previous = (group: Group) => snapshots.get(closes[group])
+    ?? (stored && periodOf(group, stored.fetchedAt) === periodOf(group, Date.parse(`${closes[group]}T12:00:00+09:00`)) ? stored : null);
+  const verdict = judgeState(raw, activity, { weekly: previous("weekly"), monthly: previous("monthly") });
+  for (const group of ["weekly", "monthly"] as const) if (verdict[group] === "stale" && drop(group)) {
+    const bosses = BOSSES.filter(boss => groupOf(boss.cycle) === group).map(boss => boss.key);
+    await prisma.bossClear.deleteMany({ where: { characterId, period: periodOf(group, at), source: "api", boss: { in: bosses } } });
+  }
+  return settleState(raw, verdict);
 }
 
 /**

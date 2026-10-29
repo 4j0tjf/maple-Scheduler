@@ -379,6 +379,9 @@ export default function BossPanel({ characters, onCharactersChanged, onCharacter
             <p className="text-xs text-ink-faint">결정석은 1인 판매가 ÷ 인원(소수점 버림)</p>
           </div>
           {view?.row.state?.weeklyStale && <p className="mb-2 rounded-lg bg-surface-2 px-3 py-2 text-xs text-ink-muted">넥슨 스케줄러에 이번 주 보스 정보가 없습니다(오래 접속하지 않은 캐릭터 등). 게임에 접속하면 몇 분 뒤 반영됩니다.</p>}
+          {!view?.row.state?.weeklyStale && !!view?.row.state?.waiting?.length && <p className="mb-2 rounded-lg bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+            {view.row.state.waiting.map(group => group === "weekly" ? "목요일" : "1일").join("·")} 초기화 뒤 아직 게임에 접속하지 않아 넥슨이 {view.row.state.waiting.map(group => group === "weekly" ? "지난주" : "지난달").join("·")} 클리어를 그대로 보내고 있습니다.
+            그 클리어는 이번 {view.row.state.waiting.map(group => group === "weekly" ? "주" : "달").join("·")} 처치로 세지 않고, 게임에 접속하면 몇 분 뒤 이번 클리어가 반영됩니다.</p>}
           <BossTable rows={view?.rows ?? []} busy={busy} onParty={onParty} onClear={onClear} onDifficulty={onDifficulty} onRemove={onRemove} />
           <HiddenBosses bosses={view?.hidden ?? []} busy={busy} onRestore={boss => void onRestore(boss)} />
           <div className="mt-4 border-t border-line pt-4"><AddBoss rows={view?.rows ?? []} level={current.level} onAdd={(boss, difficulty) => void onAdd(boss, difficulty)} /></div>

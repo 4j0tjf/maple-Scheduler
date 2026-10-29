@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { BOSSES, bossKeyOfName, findBoss, levelOf, maxPartyOf, shareOf } from "../src/data/bosses";
-import { bossRows, bossTotals, hiddenBosses, readSchedulerState, type BossState } from "../src/services/boss-plan";
-import { closingDays, monthStart, nextReset, periodOf, weekLabel, weekStart } from "../src/services/period";
+import { bossRows, bossTotals, hiddenBosses, judgeState, readSchedulerState, settleState, type BossState } from "../src/services/boss-plan";
+import { isPeriodEnd, monthStart, nextReset, pastDays, periodOf, weekLabel, weekStart } from "../src/services/period";
 import { bossIncome, incomeByMonth } from "../src/services/boss-income";
 import { bucketKey, daysBetween, hourly, summarize, total, valueOf, type ProfitRecord } from "../src/services/profit";
 
@@ -24,11 +24,12 @@ test("weekly bosses reset on Thursday 00:00 KST and monthly bosses on the 1st", 
   assert.equal(weekLabel("2026-10-01"), "10/1(목) ~ 10/7(수)");
 });
 
-test("past-date lookups ask for each week's Wednesday and each month's last day within yesterday..13 days ago", () => {
-  assert.deepEqual(closingDays(kst("2026-10-15T10:00:00")), ["2026-10-07", "2026-10-14"], "Thursday: last week's Wednesday is yesterday");
-  assert.deepEqual(closingDays(kst("2026-10-03T12:00:00")), ["2026-09-23", "2026-09-30"], "9/30 is both a Wednesday and a month end");
-  assert.deepEqual(closingDays(kst("2026-11-02T00:30:00")), ["2026-10-21", "2026-10-28", "2026-10-31"]);
-  assert.deepEqual(closingDays(kst("2026-10-15T00:00:00")), closingDays(kst("2026-10-15T23:59:59")), "uses the Korean date");
+test("past-date lookups cover yesterday back to 13 days ago; Wednesdays and month ends close a period", () => {
+  const days = pastDays(kst("2026-10-29T10:00:00"));
+  assert.equal(days.length, 13); assert.equal(days[0], "2026-10-16"); assert.equal(days.at(-1), "2026-10-28");
+  assert.deepEqual(pastDays(kst("2026-10-29T00:00:00")), pastDays(kst("2026-10-29T23:59:59")), "uses the Korean date");
+  assert.ok(isPeriodEnd("weekly", "2026-10-28")); assert.ok(!isPeriodEnd("weekly", "2026-10-29"));
+  assert.ok(isPeriodEnd("monthly", "2026-10-31")); assert.ok(isPeriodEnd("monthly", "2026-02-28")); assert.ok(!isPeriodEnd("monthly", "2026-10-30"));
 });
 
 test("boss catalog is consistent and matches Nexon names regardless of spacing", () => {
@@ -81,6 +82,32 @@ test("boss list merges game registration, clears and manual additions", () => {
   const totals = bossTotals(rows);
   assert.equal(totals.weekly.cleared, 73_200_000); assert.equal(totals.weekly.planned, 73_200_000 + 29_850_000 + 4_040_000);
   assert.equal(totals.weekly.clearedCount, 1); assert.equal(totals.weekly.count, 3);
+});
+
+test("after a reset the game keeps last period's clears until the character logs in", () => {
+  const entries: [string, string, string, boolean, boolean][] = [["루시드", "hard", "bossWeekly", true, true], ["윌", "hard", "bossWeekly", true, true], ["검은 마법사", "hard", "bossMonthly", true, true]];
+  const daily: [string, string, string, boolean, boolean] = ["자쿰", "normal", "bossDaily", false, false];
+  const at = (text: string, list = entries) => readSchedulerState(wire(list), kst(text));
+  const offline = at("2026-10-29T09:00:00"); const online = at("2026-10-29T09:00:00", [...entries, daily]);
+  assert.equal(offline.loggedIn, false, "no daily boss entries: not logged in today"); assert.equal(online.loggedIn, true);
+  // 목요일(주기 첫날): 접속하지 않았으면 주간 완료는 지난주 것이다. 월간(10/1부터)은 모르는 날이 있어 지난달 마지막 날과 비교한다.
+  assert.deepEqual(judgeState(offline, new Map(), {}), { weekly: "stale", monthly: "fresh" });
+  assert.deepEqual(judgeState(online, new Map(), {}), { weekly: "fresh", monthly: "fresh" });
+  // 금요일: 목요일 접속 여부를 알면 그대로, 모르면 지난주 마지막 날(수요일)과 같은 완료는 의심한다.
+  const friday = at("2026-10-30T09:00:00");
+  assert.equal(judgeState(friday, new Map([["2026-10-29", true]]), {}).weekly, "fresh");
+  assert.equal(judgeState(friday, new Map([["2026-10-29", false]]), {}).weekly, "stale");
+  const wednesday = at("2026-10-28T20:00:00");
+  assert.equal(judgeState(friday, new Map(), { weekly: wednesday }).weekly, "doubtful");
+  assert.equal(judgeState(friday, new Map(), { weekly: at("2026-10-28T20:00:00", [entries[0]]) }).weekly, "fresh", "different clears: the character played this week");
+  assert.equal(judgeState(friday, new Map(), {}).weekly, "fresh", "nothing to compare: trust it");
+  // 11/1(월간 첫날)에 접속하지 않았으면 검은 마법사 완료는 지난달 것이다.
+  assert.equal(judgeState(at("2026-11-01T09:00:00"), new Map([["2026-10-29", true], ["2026-10-30", true], ["2026-10-31", true]]), {}).monthly, "stale");
+
+  const settled = settleState(offline, { weekly: "stale", monthly: "fresh" });
+  assert.deepEqual(settled.waiting, ["weekly"]); assert.equal(settled.weeklyCount, 0);
+  assert.deepEqual(bossRows(settled, {}, {}, kst("2026-10-29T09:00:00")).map(row => [row.boss.key, row.cleared]), [["lucid", false], ["will", false], ["black_mage", true]]);
+  assert.deepEqual(settleState(online, { weekly: "fresh", monthly: "fresh" }).waiting, []);
 });
 
 test("completion from an earlier week is ignored, stored clears keep their price and stale responses fall back to settings", () => {

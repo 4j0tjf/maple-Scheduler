@@ -1,5 +1,5 @@
 import { BOSSES, bossKeyOfName, findBoss, isDifficulty, levelOf, maxPartyOf, shareOf, WEEKLY_BOSS_LIMIT, type Boss, type Cycle, type Difficulty } from "@/data/bosses";
-import { periodOf } from "./period";
+import { addDays, koreaDate, periodOf } from "./period";
 
 /**
  * 넥슨 스케줄러 응답(scheduler/character-state)의 보스 부분과, 그것으로 만든 캐릭터별 보스 목록.
@@ -13,10 +13,17 @@ export type BossState = {
   weeklyCount: number | null; weeklyLimit: number | null;
   /** 주간 보스 항목이 하나도 없으면 미접속 등으로 줄어든 응답이다. 이때 등록·완료 여부를 믿지 않는다. */
   weeklyStale: boolean;
+  /** 그날 게임에 접속했는지. 접속하지 않은 날의 응답에는 일간 보스(bossDaily) 항목이 없다. 예전에 저장한 상태에는 없다. */
+  loggedIn?: boolean;
+  /** 주기가 바뀐 뒤 아직 접속하지 않아 넥슨이 지난 주기 완료를 보내고 있어 완료 표시를 지운 주기. */
+  waiting?: Group[];
 };
+/** 초기화 단위. 시즌 보스는 주간 보스와 함께 목요일에 초기화된다. */
+export type Group = "weekly" | "monthly";
+export const groupOf = (cycle: Cycle): Group => cycle === "monthly" ? "monthly" : "weekly";
 
 type Wire = { boss_contents?: unknown; weekly_boss_clear_count?: unknown; weekly_boss_clear_limit_count?: unknown };
-/** 넥슨 응답 → BossState. 일간 보스(bossDaily)는 버린다. 플래그는 문자열 "true"/"false"로 온다. */
+/** 넥슨 응답 → BossState. 일간 보스(bossDaily)는 그날 접속했는지만 보고 버린다. 플래그는 문자열 "true"/"false"로 온다. */
 export function readSchedulerState(data: Wire, fetchedAt: number): BossState {
   const list = Array.isArray(data.boss_contents) ? data.boss_contents as Record<string, unknown>[] : [];
   const bosses: ApiBoss[] = [];
@@ -30,7 +37,43 @@ export function readSchedulerState(data: Wire, fetchedAt: number): BossState {
   }
   const count = (value: unknown) => Number.isInteger(value) ? value as number : null;
   return { fetchedAt, bosses, weeklyCount: count(data.weekly_boss_clear_count), weeklyLimit: count(data.weekly_boss_clear_limit_count),
-    weeklyStale: !list.some(item => item?.cycle === "bossWeekly") };
+    weeklyStale: !list.some(item => item?.cycle === "bossWeekly"), loggedIn: list.some(item => item?.cycle === "bossDaily") };
+}
+
+/**
+ * 넥슨은 주기가 바뀌어도(주간 목요일 0시·월간 1일 0시) 캐릭터가 게임에 접속하기 전까지 지난 주기의 완료 표시를 그대로 보낸다.
+ * 그 상태(그날 기준)의 완료 표시가 이번 주기 것인지 주기마다 판정한다.
+ * - fresh: 그날 접속했거나, 주기 첫날부터 그 전날 사이에 접속한 날이 있다.
+ * - stale: 주기 첫날부터 그 전날까지 모든 날의 접속 여부를 아는데 접속한 날이 없다. 완료 표시는 모두 지난 주기 것이다.
+ * - doubtful: 모르는 날이 있고, 완료 표시가 지난 주기 마지막 날과 똑같다. 지난 주기 것일 수 있어 세지 않는다(지우지도 않는다).
+ * activity는 날짜 → 그날 접속 여부(지난 날짜 조회·화면 동기화에서 본 것), previous는 주기마다 지난 주기 마지막 날의 상태다.
+ */
+export type Freshness = "fresh" | "stale" | "doubtful";
+export function judgeState(state: BossState, activity: Map<string, boolean>, previous: Partial<Record<Group, BossState | null>>): Record<Group, Freshness> {
+  const day = koreaDate(state.fetchedAt);
+  const judge = (group: Group): Freshness => {
+    if (state.loggedIn) return "fresh";
+    let known = true;
+    for (let date = periodOf(group, state.fetchedAt); date < day; date = addDays(date, 1)) {
+      const seen = activity.get(date);
+      if (seen) return "fresh";
+      if (seen === undefined) known = false;
+    }
+    if (known) return "stale";
+    const before = previous[group]; const now = completeKeys(state, group);
+    return before && now.size && sameKeys(now, completeKeys(before, group)) ? "doubtful" : "fresh";
+  };
+  return { weekly: judge("weekly"), monthly: judge("monthly") };
+}
+const completeKeys = (state: BossState, group: Group) =>
+  new Set(state.bosses.filter(entry => entry.complete && groupOf(entry.cycle) === group).map(entry => `${entry.boss ?? entry.name}|${entry.difficulty}`));
+const sameKeys = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every(key => b.has(key));
+/** fresh가 아닌 주기의 완료 표시를 지운다. waiting에 그 주기를 남겨 화면이 "접속 전" 안내를 띄운다. */
+export function settleState(state: BossState, verdict: Record<Group, Freshness>): BossState {
+  const waiting = (["weekly", "monthly"] as const).filter(group => verdict[group] !== "fresh");
+  if (!waiting.length) return { ...state, waiting: [] };
+  return { ...state, waiting, weeklyCount: waiting.includes("weekly") ? 0 : state.weeklyCount,
+    bosses: state.bosses.map(entry => waiting.includes(groupOf(entry.cycle)) ? { ...entry, complete: false } : entry) };
 }
 
 /** hidden: 목록에서 삭제함. 넥슨 스케줄러에 등록돼 있어도 목록·수익에서 뺀다(챌린저스 월드가 끝난 뒤에도 남는 시즌 보스 등). */

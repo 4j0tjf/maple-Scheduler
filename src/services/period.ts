@@ -34,19 +34,20 @@ export function weekLabel(start: string) {
   return `${text(from)}(목) ~ ${text(to)}(수)`;
 }
 
+/** 그 시각의 한국 날짜(YYYY-MM-DD). */
+export const koreaDate = (at: number) => day(at + KST);
+/** 한국 날짜에 며칠을 더한다. */
+export const addDays = (date: string, days: number) => day(Date.parse(`${date}T00:00:00Z`) + days * DAY);
+/** 그 날짜가 주기의 마지막 날인지(주간: 수요일, 월간: 그 달 마지막 날). */
+export function isPeriodEnd(cycle: Cycle, date: string) {
+  const next = addDays(date, 1);
+  return cycle === "monthly" ? next.endsWith("-01") : new Date(`${next}T00:00:00Z`).getUTCDay() === 4;
+}
+
 /** 넥슨 스케줄러를 지난 날짜로 조회할 수 있는 날 수. 어제부터 13일 전까지다(넥슨 한도 14일, 마지막 날은 주간 정산으로 몇 시간 일찍 닫힌다). */
 export const PAST_QUERY_DAYS = 13;
-/**
- * 지난 주기를 채우려고 조회할 날짜(한국 날짜, 오래된 순). 조회 가능한 날(어제 ~ 13일 전) 가운데
- * 주 마지막 날(수요일)과 달 마지막 날이다. 그날이 끝난 상태에 그 주기 처치가 모두 들어 있다.
- */
-export function closingDays(at: number) {
-  const today = Date.parse(`${day(at + KST)}T00:00:00Z`);
-  const days: string[] = [];
-  for (let back = PAST_QUERY_DAYS; back >= 1; back--) {
-    const date = new Date(today - back * DAY);
-    const lastOfMonth = new Date(date.getTime() + DAY).getUTCDate() === 1;
-    if (date.getUTCDay() === 3 || lastOfMonth) days.push(day(date.getTime()));
-  }
-  return days;
+/** 지난 날짜로 조회할 수 있는 날(한국 날짜, 오래된 순): 13일 전 ~ 어제. 그날이 끝난 상태와 그날 접속했는지를 준다. */
+export function pastDays(at: number) {
+  const today = koreaDate(at);
+  return Array.from({ length: PAST_QUERY_DAYS }, (_, index) => addDays(today, index - PAST_QUERY_DAYS));
 }

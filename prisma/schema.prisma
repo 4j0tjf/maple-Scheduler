@@ -40,6 +40,8 @@ model Character {
   syncedAt     DateTime? @map("synced_at")
   /// 보스 상태를 마지막으로 가져온 시각.
   bossSyncedAt DateTime? @map("boss_synced_at")
+  /// 넥슨 응답으로 확인한 마지막 접속일(한국 날짜). 주기가 바뀐 뒤 받은 완료 표시가 이번 주기 것인지 가리는 데 쓴다.
+  activeDay    String?   @map("active_day")
   createdAt    DateTime  @default(now()) @map("created_at")
 
   account       Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
@@ -94,8 +96,8 @@ model BossClear {
   @@map("boss_clears")
 }
 
-/// 넥슨 스케줄러의 지난 날짜 조회(date=YYYY-MM-DD) 결과. 주 마지막 날(수요일)·달 마지막 날의 상태로 그 주기 처치를 채운다.
-/// 한 번 받은 날짜는 다시 부르지 않는다(사이트를 열지 않은 주도 기록되게 하는 백필).
+/// 넥슨 스케줄러의 지난 날짜 조회(date=YYYY-MM-DD) 결과. 날마다 그날이 끝난 상태와 그날 접속했는지(state.loggedIn)를 남긴다.
+/// 그 상태로 그 주기 처치를 채우고(사이트를 열지 않은 주도 기록되게 하는 백필), 접속 여부로 지난 주기 완료 표시를 가린다. 한 번 받은 날짜는 다시 부르지 않는다.
 model BossSnapshot {
   characterId String   @map("character_id")
   /// 조회한 한국 날짜(YYYY-MM-DD). 그날이 끝난 상태다.
