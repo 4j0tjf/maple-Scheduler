@@ -1,3 +1,4 @@
+import { ratesCache, ocidCache, ratesScope } from "@/services/rates-cache";
 import { denied, huntingCharacter, LOGIN_REQUIRED } from "@/services/access";
 import { accountKey } from "@/services/character-sync";
 import { abilityPresets, artifactRates, equipmentPresets, equipmentRates, findOcid, holySymbolDrop, NexonError, nexonError, nexonGet, statRates, symbolRates,
@@ -5,10 +6,6 @@ import { abilityPresets, artifactRates, equipmentPresets, equipmentRates, findOc
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// 캐릭터 정보는 자주 바뀌지 않고 넥슨 API는 호출 한도가 있다. 같은 캐릭터는 10분간 저장본을 쓴다.
-const TTL = 10 * 60_000;
-const cache = new Map<string, { at: number; info: CharacterInfo }>();
-const ocids = new Map<string, string>();
 const presetNumber = (value: unknown) => Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 3 ? value as number : null;
 
 /**
@@ -21,15 +18,16 @@ export async function GET(request: Request) {
   let key: string | null;
   try { key = await accountKey(character.accountId); } catch { return denied("저장소에 연결할 수 없습니다.", 503); }
   if (!key) return denied("이 계정에 넥슨 API 키가 없습니다. 왼쪽 계정 메뉴의 '넥슨 API 키'에서 등록하세요.", 409);
-  const cached = cache.get(character.name);
-  if (cached && Date.now() - cached.at < TTL && new URL(request.url).searchParams.get("refresh") !== "1")
-    return Response.json(cached.info, { headers: { "Cache-Control": "no-store" } });
+  const scope = ratesScope(character.accountId, character.id, key);
+  const cached = ratesCache.get(scope);
+  if (cached && new URL(request.url).searchParams.get("refresh") !== "1")
+    return Response.json(cached, { headers: { "Cache-Control": "no-store" } });
   try {
-    let ocid = ocids.get(character.name);
+    let ocid = ocidCache.get(scope);
     if (!ocid) {
       const found = await findOcid(character.name, key);
       if (!found) return denied(nexonError("OPENAPI00004"), 404);
-      ocids.set(character.name, ocid = found);
+      ocidCache.set(scope, ocid = found);
     }
     const query = `?ocid=${encodeURIComponent(ocid)}`;
     const get = <T,>(path: string) => nexonGet<T>(`${path}${path.includes("?") ? `&${query.slice(1)}` : query}`, key);
@@ -65,12 +63,12 @@ export async function GET(request: Request) {
       grandSymbol: value(symbol, "심볼", data => symbolRates(data.symbol)),
       missing, fetchedAt: new Date().toISOString(),
     };
-    cache.set(character.name, { at: Date.now(), info });
+    ratesCache.set(scope, info);
     return Response.json(info, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof NexonError) {
       // ocid가 바뀌었을 수 있다(닉네임 변경 등). 다음 조회에서 다시 찾는다.
-      if (error.code === "OPENAPI00004") ocids.delete(character.name);
+      if (error.code === "OPENAPI00004") ocidCache.delete(scope);
       return denied(nexonError(error.code), error.status === 429 ? 429 : error.code === "OPENAPI00004" ? 404 : 502);
     }
     return denied("넥슨 API에 연결할 수 없습니다.", 502);

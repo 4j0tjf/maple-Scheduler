@@ -52,3 +52,23 @@ test("호출 한도는 키마다 따로 센다: 한 키가 초당 한도를 채�
     assert.deepEqual(nexon.keys, [busy, busy, busy, busy, busy, other]);
   } finally { nexon.restore(); }
 });
+
+test("키 상태는 정상·폐기·호출 한도·점검·연결 장애를 구분하고 비밀값은 포함하지 않는다", async () => {
+  const { keyHealth } = await import("../src/services/nexon-traffic");
+  const key = `test_${"h".repeat(40)}`;
+  const original = globalThis.fetch;
+  let reply = { status: 200, body: { ocid: "x" } as unknown };
+  globalThis.fetch = (async () => Response.json(reply.body, { status: reply.status })) as typeof fetch;
+  try {
+    await nexonGet("/id", key);
+    const success = keyHealth(key).successAt; assert.ok(success);
+    for (const [code, state] of [["OPENAPI00005", "invalid"], ["OPENAPI00007", "limited"], ["OPENAPI00011", "maintenance"]] as const) {
+      reply = { status: 400, body: { error: { name: code } } };
+      await assert.rejects(nexonGet("/id", key));
+      assert.equal(keyHealth(key).state, state); assert.equal(keyHealth(key).successAt, success);
+    }
+    globalThis.fetch = (async () => { throw Error("network"); }) as typeof fetch;
+    await assert.rejects(nexonGet("/id", key)); assert.equal(keyHealth(key).state, "unavailable");
+    assert.ok(!JSON.stringify(keyHealth(key)).includes(key));
+  } finally { globalThis.fetch = original; }
+});

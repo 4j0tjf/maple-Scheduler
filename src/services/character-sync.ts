@@ -1,4 +1,5 @@
 import "server-only";
+import { readAccountKey } from "./nexon-key-store";
 import { prisma } from "@/lib/prisma";
 import { BOSSES, findBoss, levelOf, shareOf } from "@/data/bosses";
 import { apiFor, groupOf, hiddenBosses, judgeState, readSchedulerState, settleState, type BossState, type Group } from "./boss-plan";
@@ -15,7 +16,7 @@ const BASIC_TTL = 3 * 3600_000;
 type Row = { id: string; name: string; ocid: string | null; syncedAt: Date | null; bossSyncedAt: Date | null };
 /** 계정에 등록한 넥슨 API 키. 등록하지 않았으면 null(넥슨 정보 없이 이름만 쓴다). */
 export async function accountKey(accountId: string): Promise<string | null> {
-  return (await prisma.account.findUnique({ where: { id: accountId }, select: { nexonApiKey: true } }))?.nexonApiKey ?? null;
+  return readAccountKey(prisma.account, accountId);
 }
 
 export function syncError(error: unknown) {

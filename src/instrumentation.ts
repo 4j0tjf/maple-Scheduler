@@ -4,6 +4,8 @@
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  const { encryptionKey } = await import("@/services/key-encryption");
+  encryptionKey();
   const { startBossBackfill } = await import("@/services/boss-backfill");
   startBossBackfill();
 }

@@ -1,4 +1,6 @@
 import "server-only";
+import { accountKey } from "./character-sync";
+import { mapLimited, singleFlight } from "./async-work";
 import { prisma } from "@/lib/prisma";
 import { readSchedulerState, type BossState } from "./boss-plan";
 import { recordApiClears, settle } from "./character-sync";
@@ -23,7 +25,7 @@ async function backfillCharacter(character: { id: string; ocid: string; activeDa
   const added = new Set<string>();
   for (const date of days.filter(day => typeof states.get(day)?.loggedIn !== "boolean")) {
     try {
-      const state = readSchedulerState(await nexonGet(`/scheduler/character-state?ocid=${encodeURIComponent(character.ocid)}&date=${date}`, key), Date.parse(`${date}T23:59:59+09:00`));
+      const state = readSchedulerState(await nexonGet(`/scheduler/character-state?ocid=${encodeURIComponent(character.ocid)}&date=${date}`, key, true), Date.parse(`${date}T23:59:59+09:00`));
       await prisma.bossSnapshot.upsert({ where: { characterId_date: { characterId: character.id, date } }, create: { characterId: character.id, date, state }, update: { state, fetchedAt: new Date() } });
       states.set(date, state); added.add(date); result.filled += 1;
     } catch (error) {
@@ -49,22 +51,27 @@ async function backfillCharacter(character: { id: string; ocid: string; activeDa
  * 넥슨 API 키를 등록한 계정마다 그 키로 그 계정 캐릭터의 지난 날짜를 채운다. 키가 없는 계정은 건너뛴다.
  * 호출 한도는 키마다 따로라 계정끼리는 함께 돌리고, 한 계정 안에서는 캐릭터를 차례로 부른다.
  */
-export async function backfillBosses(now = Date.now()): Promise<Result> {
+async function performBackfill(now = Date.now()): Promise<Result> {
   const result: Result = { filled: 0, pending: 0, failed: [] };
   const days = pastDays(now);
   const accounts = await prisma.account.findMany({ where: { nexonApiKey: { not: null }, characters: { some: { ocid: { not: null } } } },
-    select: { username: true, nexonApiKey: true, characters: { where: { ocid: { not: null } }, select: { id: true, ocid: true, activeDay: true } } } });
-  await Promise.all(accounts.map(async account => {
+    select: { id: true, username: true, characters: { where: { ocid: { not: null } }, select: { id: true, ocid: true, activeDay: true } } } });
+  await mapLimited(accounts, 3, async account => {
     try {
-      for (const character of account.characters)
-        await backfillCharacter({ id: character.id, ocid: character.ocid!, activeDay: character.activeDay }, account.nexonApiKey!, days, result);
+      for (const character of account.characters) {
+        // 삭제·변경된 키를 다음 캐릭터까지 계속 쓰지 않는다.
+        const key = await accountKey(account.id); if (!key) break;
+        await backfillCharacter({ id: character.id, ocid: character.ocid!, activeDay: character.activeDay }, key, days, result);
+      }
     } catch (error) {
       const reason = error instanceof NexonError ? (keyRejected(error) ? "넥슨 API 키가 올바르지 않거나 권한이 없음" : nexonError(error.code)) : error instanceof Error ? error.message : String(error);
       result.failed.push({ account: account.username, reason });
     }
-  }));
+  });
   return result;
 }
+
+export const backfillBosses = singleFlight(() => performBackfill());
 
 const timer = globalThis as unknown as { bossBackfill?: NodeJS.Timeout };
 /**
@@ -73,11 +80,19 @@ const timer = globalThis as unknown as { bossBackfill?: NodeJS.Timeout };
  */
 export function startBossBackfill() {
   if (timer.bossBackfill) return;
-  const run = () => backfillBosses().then(result => {
-    if (result.filled) console.log(`[보스 기록] 지난 날짜 넥슨 조회 ${result.filled}건으로 처치 기록을 채웠습니다.${result.pending ? ` (아직 준비 안 됨 ${result.pending}건은 다음에)` : ""}`);
-    for (const { account, reason } of result.failed) console.error(`[보스 기록] ${account} 계정의 지난 날짜 처치를 채우지 못했습니다: ${reason}`);
-  }).catch(error => console.error(`[보스 기록] 지난 날짜 처치를 채우지 못했습니다: ${error instanceof Error ? error.message : error}`));
-  setTimeout(run, 30_000).unref();
-  timer.bossBackfill = setInterval(run, HOUR);
+  let failures = 0;
+  const run = async () => {
+    let retry = false;
+    try {
+      const result = await backfillBosses();
+      if (result.filled) console.log(`[보스 기록] 지난 날짜 ${result.filled}건을 채웠습니다.`);
+      for (const { account, reason } of result.failed) console.error(`[보스 기록] ${account}: ${reason}`);
+      retry = result.failed.length > 0 || result.pending > 0;
+    } catch { retry = true; console.error("[보스 기록] 백필 실패. 다음 실행에서 재시도합니다."); }
+    failures = retry ? Math.min(failures + 1, 5) : 0;
+    timer.bossBackfill = setTimeout(run, retry ? Math.min(60_000 * 2 ** (failures - 1), 15 * 60_000) : HOUR);
+    timer.bossBackfill.unref();
+  };
+  timer.bossBackfill = setTimeout(run, 30_000);
   timer.bossBackfill.unref();
 }
