@@ -8,6 +8,20 @@ function Get-HttpStatus([string]$Url) {
     try { return [int](Invoke-WebRequest $Url -UseBasicParsing -TimeoutSec 3).StatusCode }
     catch { if ($_.Exception.Response) { return [int]$_.Exception.Response.StatusCode }; return 0 }
 }
+# npm은 cmd로 부르고 출력을 파이프로 받아 화면에 쓴 뒤 종료 코드를 돌려준다.
+# Windows PowerShell 5.1은 Start-Transcript 중에 외부 프로그램이 콘솔에 직접 쓴 출력을 끝난 뒤 화면 버퍼에서 다시 읽어 기록하는데,
+# next build처럼 커서를 움직이며 많이 쓰면 "'node.exe' 프로그램을 실행하지 못했습니다. 인덱스가 배열 범위를 벗어났습니다."를 내며
+# 배포를 멈춘다(빌드는 끝났는데 서비스 전환 전에 중단). 파이프로 받으면 node가 콘솔에 직접 쓰지 않아 그 단계를 거치지 않는다.
+# stderr는 cmd 안에서 합친다(5.1에서 PowerShell의 2>&1은 stderr 줄을 오류로 바꿔 $ErrorActionPreference='Stop'에 걸린다).
+# node는 파이프에 UTF-8로 쓰므로 그동안만 콘솔 인코딩을 UTF-8로 둔다(한글·✓가 깨지지 않게).
+function Invoke-Npm([string]$Arguments) {
+    $encoding = $null
+    try { $encoding = [Console]::OutputEncoding; [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false } catch { $encoding = $null }
+    try {
+        cmd /d /c "npm $Arguments 2>&1" | Out-Host
+        return $LASTEXITCODE
+    } finally { if ($encoding) { [Console]::OutputEncoding = $encoding } }
+}
 $project = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
 $release = ".next-release-$stamp"
@@ -29,19 +43,19 @@ try {
         Stop-Service MapleSchedulerWeb
         (Get-Service MapleSchedulerWeb).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
         $stopped = $true
-        npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
-        if ($LASTEXITCODE -ne 0) { throw "의존성 복구 실패: $LASTEXITCODE" }
+        $code = Invoke-Npm 'ci --ignore-scripts --prefer-offline --no-audit --no-fund'
+        if ($code -ne 0) { throw "의존성 복구 실패: $code" }
     }
     # DB 변경(컬럼 추가 등)을 먼저 적용한다. 지금 도는 빌드도 그대로 쓸 수 있는 변경만 만든다.
-    npm run db:migrate
-    if ($LASTEXITCODE -ne 0) { throw "DB 변경 적용 실패: $LASTEXITCODE" }
+    $code = Invoke-Npm 'run db:migrate'
+    if ($code -ne 0) { throw "DB 변경 적용 실패: $code" }
     # tsconfig.json은 기본 빌드 폴더(.next)의 타입 파일도 검사한다. 예전 빌드가 남긴 타입 파일이 지금은 없는 화면·API를 가리키면
     # 타입 검사가 실패하므로 지운다(빌드·개발 서버가 다시 만든다). 서비스는 .next-release-… 폴더를 쓰므로 영향이 없다.
     foreach ($stale in @('.next\types', '.next\dev\types')) { Remove-Item -LiteralPath (Join-Path $project $stale) -Recurse -Force -ErrorAction SilentlyContinue }
     $env:SCHEDULER_BUILD_DIR = $release
-    npm run build
-    if ($LASTEXITCODE -ne 0) { npm run build }
-    if ($LASTEXITCODE -ne 0) { throw "빌드 실패: $LASTEXITCODE" }
+    $code = Invoke-Npm 'run build'
+    if ($code -ne 0) { $code = Invoke-Npm 'run build' }
+    if ($code -ne 0) { throw "빌드 실패: $code" }
     if (!(Test-Path -LiteralPath (Join-Path $project "$release/BUILD_ID"))) { throw '완성된 빌드가 없습니다.' }
     if (!$stopped) { Stop-Service MapleSchedulerWeb; (Get-Service MapleSchedulerWeb).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30)); $stopped=$true }
     New-ItemProperty -Path $registry -Name AppEnvironmentExtra -PropertyType MultiString -Value $environment -Force | Out-Null
