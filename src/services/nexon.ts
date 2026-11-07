@@ -1,5 +1,6 @@
 /**
- * 넥슨 Open API(메이플스토리) 응답 해석. 호출은 서버 라우트(/api/characters · /api/bosses · /api/rates)에서만 한다.
+ * 넥슨 Open API(메이플스토리) 응답 해석. 호출은 서버 라우트(/api/characters · /api/bosses · /api/rates · /api/nexon-key)와 백필에서만 한다.
+ * 키는 서버 하나가 아니라 계정마다 등록한 키(accounts.nexon_api_key)를 쓴다.
  * - ocid:     GET /maplestory/v1/id?character_name=
  * - 기본:     GET /character/basic?ocid=            → character_name, character_level, character_class, world_name, character_image
  * - 스케줄러: GET /scheduler/character-state?ocid=  → boss_contents[{ content_name, difficulty, cycle, registration_flag, complete_flag }]
@@ -14,21 +15,30 @@
 /** NEXON_API_URL은 시험용 대체 서버를 붙일 때만 쓴다. 운영에서는 비워 둔다. */
 export const NEXON_BASE = (process.env.NEXON_API_URL || "https://open.api.nexon.com/maplestory/v1").replace(/\/$/, "");
 
-/** 초당 호출 수. 개발 단계 키의 한도(초당 5회)에 맞춘다. 서버 전체가 같이 쓴다. */
+/** 키 하나의 초당 호출 수. 개발 단계 키의 한도(초당 5회)에 맞춘다. 키는 계정마다 따로라 한도도 키마다 따로 센다. */
 const PER_SECOND = 5;
-const started: number[] = [];
-async function slot() {
+const started = new Map<string, number[]>();
+async function slot(key: string) {
   for (;;) {
     const now = Date.now();
-    while (started.length && now - started[0] >= 1000) started.shift();
-    if (started.length < PER_SECOND) { started.push(now); return; }
-    await new Promise(resolve => setTimeout(resolve, 1000 - (now - started[0]) + 5));
+    const recent = (started.get(key) ?? []).filter(at => now - at < 1000);
+    if (recent.length < PER_SECOND) { recent.push(now); started.set(key, recent); return; }
+    started.set(key, recent);
+    await new Promise(resolve => setTimeout(resolve, 1000 - (now - recent[0]) + 5));
   }
+}
+
+/** 계정에 등록하는 넥슨 Open API 키. 공백 없는 영문·숫자·기호(헤더에 그대로 넣는 값)만 받는다. */
+export const NEXON_KEY = /^[\x21-\x7e]{16,200}$/;
+/** 화면에 보여 줄 키 모양. 개발·서비스 단계 앞머리(test_·live_)와 끝 4자만 남긴다. */
+export function keyHint(key: string) {
+  const stage = /^(test|live)_/.exec(key)?.[0] ?? "";
+  return `${stage}••••${key.slice(-4)}`;
 }
 
 export class NexonError extends Error { constructor(readonly code: string | undefined, readonly status: number) { super(code ?? String(status)); } }
 export async function nexonGet<T>(path: string, key: string): Promise<T> {
-  await slot();
+  await slot(key);
   const response = await fetch(`${NEXON_BASE}${path}`, { headers: { "x-nxopen-api-key": key }, cache: "no-store", signal: AbortSignal.timeout(8000) });
   const data = await response.json().catch(() => null) as { error?: { name?: string } } | null;
   if (!response.ok) throw new NexonError(data?.error?.name, response.status);
@@ -38,6 +48,16 @@ export async function nexonGet<T>(path: string, key: string): Promise<T> {
 export async function findOcid(name: string, key: string): Promise<string | null> {
   try { return (await nexonGet<{ ocid: string }>(`/id?character_name=${encodeURIComponent(name)}`, key)).ocid; }
   catch (error) { if (error instanceof NexonError && error.code === "OPENAPI00004") return null; throw error; }
+}
+/** 키가 틀렸거나 권한이 없다는 넥슨 응답인지. */
+export const keyRejected = (error: unknown) => error instanceof NexonError && (["OPENAPI00002", "OPENAPI00005"].includes(error.code ?? "") || error.status === 401);
+/**
+ * 키를 등록하기 전에 넥슨이 받아 주는지 확인한다. 캐릭터 ocid 조회 한 번으로 본다(없는 이름이어도 키가 맞으면 OPENAPI00004).
+ * 키가 틀렸으면 false, 점검·호출 한도·서버 오류처럼 지금 확인할 수 없으면 던진다.
+ */
+export async function keyAccepted(key: string, probe = "메이플스토리"): Promise<boolean> {
+  try { await findOcid(probe, key); return true; }
+  catch (error) { if (keyRejected(error)) return false; throw error; }
 }
 
 type FinalStat = { stat_name?: unknown; stat_value?: unknown };
@@ -144,7 +164,7 @@ export type CharacterInfo = {
 export function nexonError(code: string | undefined) {
   switch (code) {
     case "OPENAPI00001": return "넥슨 API 서버 오류입니다. 잠시 후 다시 시도하세요.";
-    case "OPENAPI00002": case "OPENAPI00005": return "넥슨 API 키가 올바르지 않거나 권한이 없습니다. maple-Scheduler/.env의 NEXON_API_KEY를 확인하세요.";
+    case "OPENAPI00002": case "OPENAPI00005": return "넥슨 API 키가 올바르지 않거나 권한이 없습니다. 왼쪽 계정 메뉴의 '넥슨 API 키'에서 키를 확인하세요.";
     case "OPENAPI00004": return "넥슨에서 캐릭터를 찾지 못했습니다. 등록한 캐릭터명이 게임 캐릭터명과 같은지 확인하세요(닉네임을 바꿨으면 다시 등록).";
     case "OPENAPI00007": return "넥슨 API 호출 한도를 넘었습니다. 잠시 후 다시 시도하세요.";
     case "OPENAPI00009": return "넥슨 API 데이터가 아직 준비되지 않았습니다. 잠시 후 다시 시도하세요.";

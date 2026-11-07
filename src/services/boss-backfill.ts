@@ -1,8 +1,8 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { readSchedulerState, type BossState } from "./boss-plan";
-import { apiKey, recordApiClears, settle } from "./character-sync";
-import { NexonError, nexonGet } from "./nexon";
+import { recordApiClears, settle } from "./character-sync";
+import { keyRejected, NexonError, nexonError, nexonGet } from "./nexon";
 import { isPeriodEnd, pastDays } from "./period";
 
 /**
@@ -13,7 +13,8 @@ import { isPeriodEnd, pastDays } from "./period";
  */
 const HOUR = 3600_000;
 
-type Result = { filled: number; pending: number };
+/** failed는 이번에 채우지 못한 계정(아이디)과 이유. 한 계정의 키가 틀려도 다른 계정은 계속 채운다. */
+type Result = { filled: number; pending: number; failed: { account: string; reason: string }[] };
 /** 캐릭터 한 명의 빠진 날짜를 받고, 새로 받은 날과 주기 마지막 날을 다시 판정해 처치 기록에 반영한다. */
 async function backfillCharacter(character: { id: string; ocid: string; activeDay: string | null }, key: string, days: string[], result: Result) {
   const rows = await prisma.bossSnapshot.findMany({ where: { characterId: character.id, date: { in: days } }, select: { date: true, state: true } });
@@ -44,22 +45,37 @@ async function backfillCharacter(character: { id: string; ocid: string; activeDa
   }
 }
 
-/** 등록된 모든 캐릭터의 지난 날짜를 채운다. 넥슨 키가 없으면 아무것도 하지 않는다. */
+/**
+ * 넥슨 API 키를 등록한 계정마다 그 키로 그 계정 캐릭터의 지난 날짜를 채운다. 키가 없는 계정은 건너뛴다.
+ * 호출 한도는 키마다 따로라 계정끼리는 함께 돌리고, 한 계정 안에서는 캐릭터를 차례로 부른다.
+ */
 export async function backfillBosses(now = Date.now()): Promise<Result> {
-  const result: Result = { filled: 0, pending: 0 };
-  const key = apiKey(); if (!key) return result;
+  const result: Result = { filled: 0, pending: 0, failed: [] };
   const days = pastDays(now);
-  const characters = await prisma.character.findMany({ where: { ocid: { not: null } }, select: { id: true, ocid: true, activeDay: true } });
-  for (const character of characters) await backfillCharacter({ id: character.id, ocid: character.ocid!, activeDay: character.activeDay }, key, days, result);
+  const accounts = await prisma.account.findMany({ where: { nexonApiKey: { not: null }, characters: { some: { ocid: { not: null } } } },
+    select: { username: true, nexonApiKey: true, characters: { where: { ocid: { not: null } }, select: { id: true, ocid: true, activeDay: true } } } });
+  await Promise.all(accounts.map(async account => {
+    try {
+      for (const character of account.characters)
+        await backfillCharacter({ id: character.id, ocid: character.ocid!, activeDay: character.activeDay }, account.nexonApiKey!, days, result);
+    } catch (error) {
+      const reason = error instanceof NexonError ? (keyRejected(error) ? "넥슨 API 키가 올바르지 않거나 권한이 없음" : nexonError(error.code)) : error instanceof Error ? error.message : String(error);
+      result.failed.push({ account: account.username, reason });
+    }
+  }));
   return result;
 }
 
 const timer = globalThis as unknown as { bossBackfill?: NodeJS.Timeout };
-/** 서버가 켜질 때 한 번(30초 뒤), 그 뒤 1시간마다 백필한다. 서버 로그에 받은 건수와 오류만 남긴다. */
+/**
+ * 서버가 켜질 때 한 번(30초 뒤), 그 뒤 1시간마다 백필한다. 서버 로그에 받은 건수와 오류만 남긴다.
+ * 계정이 나중에 키를 등록할 수 있어 키가 있는 계정이 없어도 타이머는 켜 둔다(그때는 DB 조회 한 번으로 끝난다).
+ */
 export function startBossBackfill() {
-  if (timer.bossBackfill || !apiKey()) return;
+  if (timer.bossBackfill) return;
   const run = () => backfillBosses().then(result => {
     if (result.filled) console.log(`[보스 기록] 지난 날짜 넥슨 조회 ${result.filled}건으로 처치 기록을 채웠습니다.${result.pending ? ` (아직 준비 안 됨 ${result.pending}건은 다음에)` : ""}`);
+    for (const { account, reason } of result.failed) console.error(`[보스 기록] ${account} 계정의 지난 날짜 처치를 채우지 못했습니다: ${reason}`);
   }).catch(error => console.error(`[보스 기록] 지난 날짜 처치를 채우지 못했습니다: ${error instanceof Error ? error.message : error}`));
   setTimeout(run, 30_000).unref();
   timer.bossBackfill = setInterval(run, HOUR);

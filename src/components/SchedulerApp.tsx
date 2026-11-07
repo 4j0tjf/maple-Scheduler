@@ -6,6 +6,7 @@ import AuthCard from "./AuthCard";
 import BossPanel from "./BossPanel";
 import CrystalPanel from "./CrystalPanel";
 import HuntingDashboard from "./HuntingDashboard";
+import NexonKey from "./NexonKey";
 import PasswordChange from "./PasswordChange";
 import ProfitPanel from "./ProfitPanel";
 import { card, smallButton } from "./ui";
@@ -30,7 +31,9 @@ export default function SchedulerApp() {
   const [account, setAccount] = useState<Account | null | undefined>(undefined);
   const [characters, setCharacters] = useState<CharacterView[]>([]); const [error, setError] = useState("");
   const [tab, setTab] = useState<Tab>("bosses"); const [huntOpened, setHuntOpened] = useState(false); const [scanning, setScanning] = useState(false);
-  const [changing, setChanging] = useState(false); const [notice, setNotice] = useState("");
+  // 계정 메뉴에서 연 설정(비밀번호 변경·넥슨 API 키). 넥슨 키를 바꾸면 nexonVersion을 올려 주간 보스를 다시 받는다.
+  const [panel, setPanel] = useState<"password" | "nexon" | null>(null); const [notice, setNotice] = useState("");
+  const [nexonVersion, setNexonVersion] = useState(0);
 
   const loadCharacters = useCallback(async () => {
     try { setCharacters((await api<{ characters: CharacterView[] }>("/api/characters")).characters); setError(""); }
@@ -52,9 +55,11 @@ export default function SchedulerApp() {
   async function logout() {
     if (scanning) return;
     await api("/api/session", null, { method: "DELETE" }).catch(() => {});
-    setAccount(null); setCharacters([]); setHuntOpened(false); setChanging(false); setNotice("");
+    setAccount(null); setCharacters([]); setHuntOpened(false); setPanel(null); setNotice("");
   }
   const unauthorized = useCallback(() => setAccount(null), []);
+  const nexonChanged = useCallback(() => { setNexonVersion(version => version + 1); void loadCharacters(); }, [loadCharacters]);
+  const togglePanel = (next: "password" | "nexon") => { setPanel(panel === next ? null : next); setNotice(""); };
   const updateCharacter = useCallback((id: string, patch: Partial<CharacterView>) => {
     setCharacters(list => {
       const index = list.findIndex(row => row.id === id); if (index < 0) return list;
@@ -75,13 +80,15 @@ export default function SchedulerApp() {
           <p className="text-lg font-bold tracking-tight">스케줄러</p>
           {account && <div className="min-w-0 lg:mt-2">
             <p className="truncate text-right text-xs text-ink-muted lg:text-left" title="로그인한 아이디">{account.username}</p>
-            <div className="mt-1.5 flex justify-end gap-1.5 lg:justify-start">
-              <button className={`${smallButton} shrink-0`} aria-expanded={changing} onClick={() => { setChanging(!changing); setNotice(""); }}>비밀번호 변경</button>
+            <div className="mt-1.5 flex flex-wrap justify-end gap-1.5 lg:justify-start">
+              <button className={`${smallButton} shrink-0`} aria-expanded={panel === "nexon"} onClick={() => togglePanel("nexon")}>넥슨 API 키</button>
+              <button className={`${smallButton} shrink-0`} aria-expanded={panel === "password"} onClick={() => togglePanel("password")}>비밀번호 변경</button>
               <button className={`${smallButton} shrink-0`} disabled={scanning} title={scanning ? "스캔을 중지한 뒤 로그아웃하세요." : undefined} onClick={() => void logout()}>로그아웃</button>
             </div>
           </div>}
         </div>
-        {account && changing && <PasswordChange onClose={changed => { setChanging(false); if (changed) setNotice("비밀번호를 바꿨습니다. 다른 기기에서는 새 비밀번호로 다시 로그인하세요."); }} />}
+        {account && panel === "password" && <PasswordChange onClose={changed => { setPanel(null); if (changed) setNotice("비밀번호를 바꿨습니다. 다른 기기에서는 새 비밀번호로 다시 로그인하세요."); }} />}
+        {account && panel === "nexon" && <NexonKey onChanged={nexonChanged} onClose={() => setPanel(null)} onUnauthorized={unauthorized} />}
         {notice && <p role="status" className="mt-2 text-xs text-success">{notice}</p>}
         <nav aria-label="스케줄러 메뉴" className="mt-3 lg:mt-5">
           <ul role="tablist" aria-orientation="vertical" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 lg:flex-col lg:overflow-visible">
@@ -116,7 +123,8 @@ export default function SchedulerApp() {
             <AuthCard onLogin={login} />
           </div>}
           {loggedIn && <div id="panel-bosses" role="tabpanel" aria-labelledby="tab-bosses" hidden={tab !== "bosses"}>
-            {tab === "bosses" && <BossPanel characters={characters} onCharactersChanged={() => void loadCharacters()} onCharacterUpdated={updateCharacter} onUnauthorized={unauthorized} />}
+            {tab === "bosses" && <BossPanel characters={characters} nexonVersion={nexonVersion} onCharactersChanged={() => void loadCharacters()} onCharacterUpdated={updateCharacter}
+              onUnauthorized={unauthorized} onNexonKeyChanged={nexonChanged} />}
           </div>}
           <div id="panel-crystals" role="tabpanel" aria-labelledby="tab-crystals" hidden={tab !== "crystals"}>{tab === "crystals" && <CrystalPanel />}</div>
           {loggedIn && huntOpened && <div id="panel-hunting" role="tabpanel" aria-labelledby="tab-hunting" hidden={tab !== "hunting"}>

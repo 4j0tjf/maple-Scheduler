@@ -13,7 +13,10 @@ export const BOSS_MIN_REFRESH = 30_000;
 const BASIC_TTL = 3 * 3600_000;
 
 type Row = { id: string; name: string; ocid: string | null; syncedAt: Date | null; bossSyncedAt: Date | null };
-export const apiKey = () => process.env.NEXON_API_KEY || null;
+/** 계정에 등록한 넥슨 API 키. 등록하지 않았으면 null(넥슨 정보 없이 이름만 쓴다). */
+export async function accountKey(accountId: string): Promise<string | null> {
+  return (await prisma.account.findUnique({ where: { id: accountId }, select: { nexonApiKey: true } }))?.nexonApiKey ?? null;
+}
 
 export function syncError(error: unknown) {
   if (error instanceof NexonError) return nexonError(error.code);

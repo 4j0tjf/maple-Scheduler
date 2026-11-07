@@ -8,6 +8,7 @@ import { api, ApiError, errorText, type CharacterView } from "@/services/client"
 import { monthStart, nextReset, weekLabel, weekStart } from "@/services/period";
 import BossIcon from "./BossIcon";
 import CharacterAvatar from "./CharacterAvatar";
+import NexonKey from "./NexonKey";
 import { button, card, eok, eokShort, field, number, primary, smallButton, smallField, smallPrimary } from "./ui";
 
 type BossCharacter = { id: string; level: number | null; image: string | null; className: string | null; world: string | null;
@@ -28,7 +29,7 @@ const ago = (at: number | null, now: number) => {
   return minutes < 1 ? "방금" : minutes < 60 ? `${minutes}분 전` : minutes < 1440 ? `${Math.floor(minutes / 60)}시간 전` : new Date(at).toLocaleDateString("ko-KR");
 };
 
-/** 캐릭터 등록. 넥슨 API로 캐릭터를 찾아 이미지·레벨을 함께 저장한다. */
+/** 캐릭터 등록. 계정의 넥슨 API 키로 캐릭터를 찾아 이미지·레벨을 함께 저장한다(다른 넥슨 ID의 캐릭터도 이름으로 찾는다). */
 function RegisterForm({ onDone, onCancel }: { onDone: (character: CharacterView, warning: string | null) => void; onCancel?: () => void }) {
   const [name, setName] = useState(""); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   async function submit(event: React.FormEvent) {
@@ -195,8 +196,10 @@ function IncomeSummary({ months, now }: { months: MonthIncome[]; now: number }) 
  * 주간 보스 탭. 등록한 캐릭터를 탭으로 보여주고, 캐릭터마다 이미지·레벨·메모와 주간 보스 목록(얼굴·이름·인원·결정석 몫·클리어)을 둔다.
  * 보스 목록과 클리어 여부는 넥슨 스케줄러 API(게임의 스케줄러 등록 상태)에서 가져오고, 직접 추가·체크도 할 수 있다.
  */
-export default function BossPanel({ characters, onCharactersChanged, onCharacterUpdated, onUnauthorized }: {
+export default function BossPanel({ characters, nexonVersion, onCharactersChanged, onCharacterUpdated, onUnauthorized, onNexonKeyChanged }: {
   characters: CharacterView[]; onCharactersChanged: (select?: string) => void; onCharacterUpdated: (id: string, patch: Partial<CharacterView>) => void; onUnauthorized: () => void;
+  /** 계정의 넥슨 API 키를 바꿀 때마다 올라가는 값. 바뀌면 보스 정보를 다시 받는다. */
+  nexonVersion: number; onNexonKeyChanged: () => void;
 }) {
   const [data, setData] = useState<BossData | null>(null); const [loading, setLoading] = useState(false); const [error, setError] = useState("");
   // 마지막으로 본 캐릭터 탭(이 브라우저). 로그인 뒤에만 그리는 화면이라 처음부터 저장소를 읽어도 된다.
@@ -215,11 +218,11 @@ export default function BossPanel({ characters, onCharactersChanged, onCharacter
     } catch (failure) { if (failure instanceof ApiError && failure.status === 401) onUnauthorized(); else setError(errorText(failure, "보스 정보를 불러오지 못했습니다.")); }
     finally { setLoading(false); }
   }, [onCharacterUpdated, onUnauthorized]);
-  // 캐릭터가 바뀔 때(등록·해제) 다시 받고, 5분마다 넥슨 저장본을 새로 받는다.
+  // 캐릭터가 바뀔 때(등록·해제)와 넥슨 API 키를 바꿨을 때 다시 받고, 5분마다 넥슨 저장본을 새로 받는다.
   useEffect(() => {
     const first = setTimeout(() => void load(), 0); const timer = setInterval(() => void load(), 5 * 60_000);
     return () => { clearTimeout(first); clearInterval(timer); };
-  }, [load, ids]);
+  }, [load, ids, nexonVersion]);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(timer); }, []);
   const selected = characters.find(row => row.id === preferred)?.id ?? characters[0]?.id ?? null;
   function choose(id: string) { setPreferred(id); try { localStorage.setItem(TAB, id); } catch { /* 이번 화면에서만 */ } }
@@ -306,7 +309,7 @@ export default function BossPanel({ characters, onCharactersChanged, onCharacter
 
     {registering && <section className={card} aria-label="캐릭터 등록">
       <h2 className="text-base font-bold tracking-tight">캐릭터 <span className="text-accent">등록</span></h2>
-      <p className="mb-3 mt-1 text-sm text-ink-muted">게임 캐릭터명을 넣으면 넥슨 API로 이미지·레벨·직업과 게임 스케줄러에 등록한 보스를 가져옵니다.</p>
+      <p className="mb-3 mt-1 text-sm text-ink-muted">게임 캐릭터명을 넣으면 이 계정의 넥슨 API 키로 이미지·레벨·직업과 게임 스케줄러에 등록한 보스를 가져옵니다. 다른 넥슨 ID의 캐릭터도 이름만 맞으면 등록할 수 있습니다.</p>
       <RegisterForm onCancel={() => setRegistering(false)} onDone={(character, warning) => {
         setRegistering(false); choose(character.id); onCharactersChanged(character.id);
         setNotice(warning ? `${character.name} 등록 완료 · 보스 정보는 아직 받지 못했습니다: ${warning}` : `${character.name} 캐릭터를 등록했습니다.`);
@@ -314,7 +317,13 @@ export default function BossPanel({ characters, onCharactersChanged, onCharacter
     </section>}
     {error && <p role="alert" className="text-sm text-warning">{error}</p>}
     {notice && <p role="status" className="text-sm text-ink-muted">{notice}</p>}
-    {data && !data.nexon && <p className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">서버에 넥슨 API 키(NEXON_API_KEY)가 없어 캐릭터 이미지·레벨과 게임 스케줄러의 보스·클리어 여부를 가져오지 못합니다. 보스는 직접 추가·체크할 수 있습니다.</p>}
+    {data && !data.nexon && <section aria-label="넥슨 API 키 등록" className="space-y-2 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3">
+      <p className="text-sm text-warning">이 계정에 넥슨 API 키가 없어 캐릭터 이미지·레벨과 게임 스케줄러의 보스·클리어 여부를 가져오지 못합니다. 보스는 직접 추가·체크할 수 있습니다.</p>
+      <p className="text-xs text-ink-muted"><a className="underline hover:text-ink" href="https://openapi.nexon.com/" target="_blank" rel="noreferrer">openapi.nexon.com</a>에서
+        애플리케이션을 등록하고 받은 키를 넣으세요. 키는 계정마다 따로 쓰며, 나중에 왼쪽 계정 메뉴의 &apos;넥슨 API 키&apos;에서 바꾸거나 지울 수 있습니다.</p>
+      <div className="max-w-md"><NexonKey compact onUnauthorized={onUnauthorized} onChanged={registered => {
+        if (registered) setNotice("넥슨 API 키를 등록했습니다. 캐릭터 정보와 보스 상태를 넥슨에서 받습니다."); onNexonKeyChanged(); }} /></div>
+    </section>}
 
     {!characters.length ? <section className={`${card} text-center`}>
       <h2 className="text-lg font-bold tracking-tight">먼저 캐릭터를 등록하세요</h2>

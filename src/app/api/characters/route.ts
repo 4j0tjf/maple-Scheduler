@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { CHARACTER_NAME } from "@/services/accounts";
 import { denied, json, LOGIN_REQUIRED, readJson, sameSite, sessionAccount } from "@/services/access";
-import { apiKey, lookupCharacter, syncCharacter, syncError } from "@/services/character-sync";
+import { accountKey, lookupCharacter, syncCharacter, syncError } from "@/services/character-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,17 +11,17 @@ const MEMO_MAX = 2000;
 const PUBLIC = { id: true, name: true, level: true, className: true, world: true, image: true, memo: true, position: true, syncedAt: true } as const;
 const list = (accountId: string) => prisma.character.findMany({ where: { accountId }, orderBy: [{ position: "asc" }, { createdAt: "asc" }], select: PUBLIC });
 
-/** 로그인한 계정의 캐릭터 목록(탭·드롭다운). 이미지·레벨은 넥슨 API에서 받아 둔 값이다. */
+/** 로그인한 계정의 캐릭터 목록(탭·드롭다운). 이미지·레벨은 넥슨 API에서 받아 둔 값이다. nexon은 이 계정에 넥슨 API 키가 있는지. */
 export async function GET(request: Request) {
   try {
     const account = await sessionAccount(request); if (!account) return denied(LOGIN_REQUIRED, 401);
-    return json({ characters: await list(account.id), nexon: !!apiKey() });
+    return json({ characters: await list(account.id), nexon: !!await accountKey(account.id) });
   } catch { return denied("저장소에 연결할 수 없습니다.", 503); }
 }
 
 /**
  * 캐릭터 등록. 넥슨 API로 그 이름의 캐릭터를 찾아 이미지·레벨·직업·월드를 저장하고, 보스 상태도 바로 받아 둔다.
- * 서버에 NEXON_API_KEY가 없으면 이름만 등록한다.
+ * 계정에 넥슨 API 키를 등록하지 않았으면 이름만 등록한다(키를 등록하면 다음 동기화에서 이름으로 찾아 채운다).
  */
 export async function POST(request: Request) {
   const cross = sameSite(request); if (cross) return cross;
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
     const count = await prisma.character.count({ where: { accountId: account.id } });
     if (count >= MAX_CHARACTERS) return denied(`캐릭터는 ${MAX_CHARACTERS}명까지 등록할 수 있습니다.`, 400);
     if (await prisma.character.findUnique({ where: { accountId_name: { accountId: account.id, name } }, select: { id: true } })) return denied("이미 등록한 캐릭터입니다.", 409);
-    const key = apiKey();
+    const key = await accountKey(account.id);
     let found: Awaited<ReturnType<typeof lookupCharacter>> = null;
     if (key) {
       try { found = await lookupCharacter(name, key); }

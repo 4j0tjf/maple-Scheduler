@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { findBoss, isDifficulty, levelOf, maxPartyOf } from "@/data/bosses";
 import { denied, json, LOGIN_REQUIRED, readJson, sameSite, sessionAccount } from "@/services/access";
 import { bossIncome } from "@/services/boss-income";
-import { apiKey, syncCharacter } from "@/services/character-sync";
+import { accountKey, syncCharacter } from "@/services/character-sync";
 import { periodOf } from "@/services/period";
 
 export const runtime = "nodejs";
@@ -11,13 +11,14 @@ export const dynamic = "force-dynamic";
 /**
  * 계정의 모든 캐릭터의 주간 보스 상태. 넥슨 스케줄러 저장본이 5분보다 오래됐으면 새로 받는다(?refresh=1이면 30초).
  * ?character=<id>를 주면 그 캐릭터만 새로 받는다. 이번 주·이번 달 처치 기록과 보스 설정을 함께 돌려준다.
+ * 넥슨 조회는 그 계정에 등록한 넥슨 API 키로 하고, 키가 없으면 저장본만 돌려준다(nexon: false).
  * income은 지난 기록까지 모든 처치를 캐릭터·주기(주·달)별 수익으로 묶은 것이다(종합 표). 이번 주기 값은 화면이 보스 목록으로 다시 계산한다.
  */
 export async function GET(request: Request) {
   const url = new URL(request.url); const force = url.searchParams.get("refresh") === "1"; const only = url.searchParams.get("character");
   try {
     const account = await sessionAccount(request); if (!account) return denied(LOGIN_REQUIRED, 401);
-    const key = apiKey(); const now = Date.now();
+    const key = await accountKey(account.id); const now = Date.now();
     const rows = await prisma.character.findMany({ where: { accountId: account.id }, select: { id: true, name: true, ocid: true, syncedAt: true, bossSyncedAt: true } });
     const errors = new Map<string, string>();
     if (key) await Promise.all(rows.filter(row => !only || row.id === only).map(async row => {

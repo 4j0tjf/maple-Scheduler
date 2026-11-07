@@ -14,6 +14,9 @@ model Account {
   username     String   @unique
   /// scrypt 해시. 세션 쿠키의 서명 키로도 쓰므로 비밀번호를 바꾸면 기존 로그인이 모두 끊긴다.
   passwordHash String   @map("password_hash")
+  /// 이 계정이 등록한 넥슨 Open API 키. 이 계정 캐릭터의 넥슨 조회(캐릭터 등록·보스 동기화·지난 날짜 채우기·사냥 효율)에 쓴다.
+  /// 없으면 넥슨 정보 없이 이름만 쓴다. 화면에는 앞머리(test_·live_)와 끝 4자만 보낸다.
+  nexonApiKey  String?  @map("nexon_api_key")
   createdAt    DateTime @default(now()) @map("created_at")
 
   characters Character[]

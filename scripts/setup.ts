@@ -1,7 +1,8 @@
 /**
  * 서버 PC 처음 설치 도우미. 기존 사냥 기록(maple-hunt) 폴더를 주면 다음을 한다. 이미 된 단계는 건너뛴다.
  *
- *   1. .env가 없으면 maple-hunt/.env의 DB 계정·넥슨 API 키·시세 주소로 만든다(DB 이름만 maple_scheduler).
+ *   1. .env가 없으면 maple-hunt/.env의 DB 계정·시세 주소로 만든다(DB 이름만 maple_scheduler).
+ *      넥슨 API 키는 .env가 아니라 화면에서 계정마다 등록한다.
  *   2. DATABASE_URL의 데이터베이스가 없으면 만든다(psql 없이).
  *   3. 사냥터 목록(data/hunting-maps.json)이 없으면 maple-hunt에서 복사한다.
  *   4. 기존 사냥 기록 DB에 연결되는지 확인하고 캐릭터·기록 수를 보여 준다.
@@ -33,12 +34,11 @@ async function main() {
       `DATABASE_URL="${withDatabase(old.DATABASE_URL, "maple_scheduler")}"`,
       `HUNT_DATABASE_URL="${old.DATABASE_URL}"`,
       `MARKET_URL="${old.MARKET_URL || "http://127.0.0.1:3000"}"`,
-      `NEXON_API_KEY="${old.NEXON_API_KEY ?? ""}"`,
     ];
     // BOM 없이 쓴다(BOM이 있으면 첫 줄의 이름을 못 읽는다).
     writeFileSync(envPath, `${lines.join("\n")}\n`, "utf8");
-    console.log(`✓ .env를 만들었습니다(${huntEnv}의 DB 계정·넥슨 키·시세 주소 사용).`);
-    if (!old.NEXON_API_KEY) console.log("  ! NEXON_API_KEY가 비어 있습니다. .env에 넣어야 캐릭터 이미지·보스 정보를 가져옵니다.");
+    console.log(`✓ .env를 만들었습니다(${huntEnv}의 DB 계정·시세 주소 사용).`);
+    console.log("  넥슨 API 키는 사이트에 로그인한 뒤 왼쪽 계정 메뉴의 '넥슨 API 키'에서 계정마다 등록합니다.");
   }
   const env = readEnv(envPath);
   if (!env.DATABASE_URL) throw new Error(".env에 DATABASE_URL이 없습니다.");

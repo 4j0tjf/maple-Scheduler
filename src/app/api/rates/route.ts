@@ -1,4 +1,5 @@
 import { denied, huntingCharacter, LOGIN_REQUIRED } from "@/services/access";
+import { accountKey } from "@/services/character-sync";
 import { abilityPresets, artifactRates, equipmentPresets, equipmentRates, findOcid, holySymbolDrop, NexonError, nexonError, nexonGet, statRates, symbolRates,
   unionPhantom, type CharacterInfo } from "@/services/nexon";
 
@@ -12,13 +13,14 @@ const presetNumber = (value: unknown) => Number.isInteger(value) && (value as nu
 
 /**
  * 고른 캐릭터(X-Character)의 레벨과 메소 획득량·아이템 드롭률 출처별 값(장비·어빌리티 프리셋, 홀리 심볼, 유니온, 아티팩트, 심볼).
- * 기본 정보만 필수이고 나머지는 실패해도 빈 값과 missing 목록으로 돌려준다. ?refresh=1이면 저장본을 건너뛴다.
+ * 넥슨 조회는 그 계정에 등록한 넥슨 API 키로 한다. 기본 정보만 필수이고 나머지는 실패해도 빈 값과 missing 목록으로 돌려준다. ?refresh=1이면 저장본을 건너뛴다.
  */
 export async function GET(request: Request) {
   const character = await huntingCharacter(request).catch(() => null);
   if (!character) return denied(LOGIN_REQUIRED, 401);
-  const key = process.env.NEXON_API_KEY;
-  if (!key) return denied("서버에 NEXON_API_KEY가 없습니다. maple-Scheduler/.env에 넣고 서비스를 다시 시작하세요.", 503);
+  let key: string | null;
+  try { key = await accountKey(character.accountId); } catch { return denied("저장소에 연결할 수 없습니다.", 503); }
+  if (!key) return denied("이 계정에 넥슨 API 키가 없습니다. 왼쪽 계정 메뉴의 '넥슨 API 키'에서 등록하세요.", 409);
   const cached = cache.get(character.name);
   if (cached && Date.now() - cached.at < TTL && new URL(request.url).searchParams.get("refresh") !== "1")
     return Response.json(cached.info, { headers: { "Cache-Control": "no-store" } });

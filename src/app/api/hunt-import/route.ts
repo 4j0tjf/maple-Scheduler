@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Attempts, CHARACTER_NAME, verifyPassword } from "@/services/accounts";
 import { denied, json, LOGIN_REQUIRED, readJson, sameSite, sessionAccount } from "@/services/access";
-import { apiKey, lookupCharacter } from "@/services/character-sync";
+import { accountKey, lookupCharacter } from "@/services/character-sync";
 import { findLegacyCharacter, importLegacyCharacter, legacyPool } from "@/services/legacy-hunt";
 
 export const runtime = "nodejs";
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     let character = await prisma.character.findFirst({ where: { accountId: account.id, name: legacy.name }, select: { id: true, name: true } });
     if (!character) {
       // 이름만 맞으면 등록한다. 넥슨 정보(이미지·레벨)는 받을 수 있으면 같이 받는다.
-      const key = apiKey(); const found = key ? await lookupCharacter(legacy.name, key).catch(() => null) : null;
+      const key = await accountKey(account.id); const found = key ? await lookupCharacter(legacy.name, key).catch(() => null) : null;
       const last = await prisma.character.aggregate({ where: { accountId: account.id }, _max: { position: true } });
       character = await prisma.character.create({ data: { accountId: account.id, name: legacy.name, ocid: found?.ocid ?? null, level: found?.basic.level ?? null,
         className: found?.basic.className ?? null, world: found?.basic.world ?? null, image: found?.basic.image ?? null, syncedAt: found ? new Date() : null,
