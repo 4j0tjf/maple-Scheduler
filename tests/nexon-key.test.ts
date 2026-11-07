@@ -72,3 +72,35 @@ test("키 상태는 정상·폐기·호출 한도·점검·연결 장애를 구�
     assert.ok(!JSON.stringify(keyHealth(key)).includes(key));
   } finally { globalThis.fetch = original; }
 });
+
+test("실서버 회귀: /id 확인용 이름의 HTTP 400 OPENAPI00003은 키 등록을 막지 않는다", async () => {
+  const { findOcid } = await import("../src/services/nexon");
+  const key = `test_${"probe".repeat(8)}`;
+  const nexon = fakeNexon(() => ({ status: 400, body: { error: { name: "OPENAPI00003" } } }));
+  try {
+    assert.equal(await keyAccepted(key), true);
+    await assert.rejects(findOcid("실제캐릭터", key), "실제 캐릭터 조회 오류는 삼키지 않는다");
+  } finally { nexon.restore(); }
+});
+
+test("확인용 이름 예외가 잘못된 키·HTTP 인증 거부·점검·한도·서버 오류까지 허용하지 않는다", async () => {
+  const cases = [
+    [400, "OPENAPI00002", false], [400, "OPENAPI00005", false], [401, "OPENAPI00003", false],
+    [429, "OPENAPI00007", "throw"], [400, "OPENAPI00011", "throw"], [503, "OPENAPI00003", "throw"],
+  ] as const;
+  for (const [status, code, expected] of cases) {
+    const key = `test_${status}_${code}_${"x".repeat(16)}`;
+    const nexon = fakeNexon(() => ({ status, body: { error: { name: code } } }));
+    try {
+      if (expected === "throw") await assert.rejects(keyAccepted(key));
+      else assert.equal(await keyAccepted(key), expected);
+    } finally { nexon.restore(); }
+  }
+});
+
+test("등록 오류는 HTTP와 정형 코드만 표시하고 알 수 없는 응답 내용을 노출하지 않는다", async () => {
+  const { nexonFailure, NexonError } = await import("../src/services/nexon");
+  assert.match(nexonFailure(new NexonError("OPENAPI99999", 403)), /HTTP 403, OPENAPI99999/);
+  const secret = "unexpected-private-response";
+  assert.ok(!nexonFailure(new NexonError(secret, 502)).includes(secret));
+});

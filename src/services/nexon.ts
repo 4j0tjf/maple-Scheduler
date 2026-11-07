@@ -68,12 +68,23 @@ export async function findOcid(name: string, key: string): Promise<string | null
 /** 키가 틀렸거나 권한이 없다는 넥슨 응답인지. */
 export const keyRejected = (error: unknown) => error instanceof NexonError && (["OPENAPI00002", "OPENAPI00005"].includes(error.code ?? "") || error.status === 401);
 /**
- * 키를 등록하기 전에 넥슨이 받아 주는지 확인한다. 캐릭터 ocid 조회 한 번으로 본다(없는 이름이어도 키가 맞으면 OPENAPI00004).
- * 키가 틀렸으면 false, 점검·호출 한도·서버 오류처럼 지금 확인할 수 없으면 던진다.
+ * 키를 등록하기 전에 캐릭터 ID 조회로 인증을 확인한다.
+ * 확인용 이름은 실제 캐릭터가 아닐 수 있다. 이 /id 조회의 HTTP 400 + 00003(식별자)·00004(파라미터)는
+ * 키 거부와 구분한다. 실제 캐릭터 조회(findOcid)의 오류 처리나 다른 API의 권한 판정은 바꾸지 않는다.
+ * 키 거부는 false, 점검·호출 한도·서버 오류는 던져서 잘못 정상 처리하지 않는다.
  */
 export async function keyAccepted(key: string, probe = "메이플스토리"): Promise<boolean> {
-  try { await findOcid(probe, key); return true; }
-  catch (error) { if (keyRejected(error)) return false; throw error; }
+  try { await nexonGet(`/id?character_name=${encodeURIComponent(probe)}`, key); return true; }
+  catch (error) {
+    if (keyRejected(error)) return false;
+    if (error instanceof NexonError && error.status === 400 && ["OPENAPI00003", "OPENAPI00004"].includes(error.code ?? "")) return true;
+    throw error;
+  }
+}
+/** 공개 오류에는 정해진 코드와 상태만 덧붙인다. 응답 본문·요청 헤더·키는 노출하지 않는다. */
+export function nexonFailure(error: NexonError) {
+  const code = /^OPENAPI\d{5}$/.test(error.code ?? "") ? error.code : "코드 없음";
+  return `${nexonError(error.code)} (HTTP ${error.status}, ${code})`;
 }
 
 type FinalStat = { stat_name?: unknown; stat_value?: unknown };
@@ -181,6 +192,7 @@ export function nexonError(code: string | undefined) {
   switch (code) {
     case "OPENAPI00001": return "넥슨 API 서버 오류입니다. 잠시 후 다시 시도하세요.";
     case "OPENAPI00002": case "OPENAPI00005": return "넥슨 API 키가 올바르지 않거나 권한이 없습니다. 왼쪽 계정 메뉴의 '넥슨 API 키'에서 키를 확인하세요.";
+    case "OPENAPI00003": return "넥슨에서 조회 대상 식별자를 확인할 수 없습니다.";
     case "OPENAPI00004": return "넥슨에서 캐릭터를 찾지 못했습니다. 등록한 캐릭터명이 게임 캐릭터명과 같은지 확인하세요(닉네임을 바꿨으면 다시 등록).";
     case "OPENAPI00007": return "넥슨 API 호출 한도를 넘었습니다. 잠시 후 다시 시도하세요.";
     case "OPENAPI00009": return "넥슨 API 데이터가 아직 준비되지 않았습니다. 잠시 후 다시 시도하세요.";

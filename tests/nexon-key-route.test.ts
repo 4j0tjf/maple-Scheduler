@@ -29,7 +29,7 @@ test("authenticated key routes isolate A/B, reject anonymous/cross-site writes a
   const originalFetch = globalThis.fetch; const usedKeys: string[] = [];
   globalThis.fetch = (async (_url, init) => {
     usedKeys.push((init?.headers as Record<string, string>)["x-nxopen-api-key"]);
-    return Response.json({ error: { name: "OPENAPI00004" } }, { status: 400 });
+    return Response.json({ error: { name: "OPENAPI00003" } }, { status: 400 });
   }) as typeof fetch;
   const a = `test_${"a".repeat(40)}`, b = `test_${"b".repeat(40)}`;
   async function request(method: string, id?: string, body?: object, origin = "http://localhost") {

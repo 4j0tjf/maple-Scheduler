@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { Attempts } from "@/services/accounts";
 import { denied, json, LOGIN_REQUIRED, readJson, sameSite, sessionAccount } from "@/services/access";
-import { keyAccepted, keyHint, NEXON_KEY, NexonError, nexonError, readKeyInput } from "@/services/nexon";
+import { keyAccepted, keyHint, NEXON_KEY, NexonError, nexonFailure, readKeyInput } from "@/services/nexon";
 import { keyHealth } from "@/services/nexon-traffic";
 import { readAccountKey, saveAccountKey } from "@/services/nexon-key-store";
 import { invalidateAccountRates } from "@/services/rates-cache";
@@ -37,7 +37,7 @@ export async function PUT(request: Request) {
         checks.add(account.id);
         return denied("넥슨이 받아 주지 않는 키입니다. openapi.nexon.com의 내 애플리케이션에서 키만 다시 복사해 붙여 넣으세요.", 400);
       }
-    } catch (error) { return denied(error instanceof NexonError ? nexonError(error.code) : "넥슨 API에 연결할 수 없습니다.", 503); }
+    } catch (error) { return denied(error instanceof NexonError ? nexonFailure(error) : "넥슨 API에 연결할 수 없습니다.", 503); }
     await saveAccountKey(prisma.account, account.id, key);
     invalidateAccountRates(account.id);
     return json(status(key));
