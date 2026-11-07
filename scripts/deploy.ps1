@@ -32,6 +32,13 @@ try {
         npm ci --ignore-scripts --prefer-offline --no-audit --no-fund
         if ($LASTEXITCODE -ne 0) { throw "의존성 복구 실패: $LASTEXITCODE" }
     }
+    npm run keys:prepare
+    if ($LASTEXITCODE -ne 0) { throw '암호화 키 설정 실패' }
+    & (Join-Path $PSScriptRoot 'backup.ps1')
+    npm test
+    if ($LASTEXITCODE -ne 0) { throw "테스트 실패: $LASTEXITCODE" }
+    npx eslint .
+    if ($LASTEXITCODE -ne 0) { throw "린트 실패: $LASTEXITCODE" }
     # DB 변경(컬럼 추가 등)을 먼저 적용한다. 지금 도는 빌드도 그대로 쓸 수 있는 변경만 만든다.
     npm run db:migrate
     if ($LASTEXITCODE -ne 0) { throw "DB 변경 적용 실패: $LASTEXITCODE" }
@@ -40,8 +47,9 @@ try {
     foreach ($stale in @('.next\types', '.next\dev\types')) { Remove-Item -LiteralPath (Join-Path $project $stale) -Recurse -Force -ErrorAction SilentlyContinue }
     $env:SCHEDULER_BUILD_DIR = $release
     npm run build
-    if ($LASTEXITCODE -ne 0) { npm run build }
     if ($LASTEXITCODE -ne 0) { throw "빌드 실패: $LASTEXITCODE" }
+    npx tsc --noEmit --incremental false
+    if ($LASTEXITCODE -ne 0) { throw "타입 검사 실패: $LASTEXITCODE" }
     if (!(Test-Path -LiteralPath (Join-Path $project "$release/BUILD_ID"))) { throw '완성된 빌드가 없습니다.' }
     if (!$stopped) { Stop-Service MapleSchedulerWeb; (Get-Service MapleSchedulerWeb).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30)); $stopped=$true }
     New-ItemProperty -Path $registry -Name AppEnvironmentExtra -PropertyType MultiString -Value $environment -Force | Out-Null
@@ -54,6 +62,8 @@ try {
         Start-Sleep -Seconds 1
     }
     if (!$ready) { throw '새 빌드 HTTP 확인 실패' }
+    npx tsx scripts/check-api.ts http://127.0.0.1:3300/scheduler
+    if ($LASTEXITCODE -ne 0) { throw '가입·인증·API 점검 실패' }
     Write-Output "운영 반영 완료: $release (이전 빌드는 보존)"
 } catch {
     $deploymentError = $_
@@ -65,3 +75,9 @@ try {
     if ($stopped) { Start-Service MapleSchedulerWeb -ErrorAction Continue }
     throw $deploymentError
 } finally { [IO.File]::WriteAllBytes($tsconfig, $tsconfigBefore); Pop-Location; Stop-Transcript | Out-Null }
+# 여기부터 실패해도 정상 가동 중인 새 앱을 과거 평문 전용 앱으로 되돌리지 않는다.
+Push-Location $project
+try {
+    npm run keys:encrypt -- --apply
+    if ($LASTEXITCODE -ne 0) { throw '새 서비스는 실행 중이지만 기존 키 암호화가 실패했습니다. 암호화 키를 유지하고 keys:encrypt를 재실행하세요.' }
+} finally { Pop-Location }

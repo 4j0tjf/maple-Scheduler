@@ -15,7 +15,9 @@
     "prebuild": "prisma generate && npm run scanner:assets",
     "maps:import": "tsx scripts/import-maps.ts",
     "hunt:import": "tsx scripts/import-hunt.ts",
-    "account:reset": "tsx scripts/reset-password.ts"
+    "account:reset": "tsx scripts/reset-password.ts",
+    "keys:prepare": "tsx scripts/prepare-key-encryption.ts",
+    "keys:encrypt": "tsx scripts/encrypt-nexon-keys.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.9.1",

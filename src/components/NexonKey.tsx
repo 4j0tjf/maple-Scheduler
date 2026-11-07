@@ -4,7 +4,10 @@ import { useEffect, useState } from "react";
 import { api, ApiError, errorText } from "@/services/client";
 import { smallButton, smallField, smallPrimary } from "./ui";
 
-type KeyStatus = { registered: boolean; hint: string | null };
+type KeyStatus = { registered: boolean; hint: string | null; health: {
+  state: "unknown" | "ok" | "invalid" | "limited" | "maintenance" | "unavailable"; checkedAt: string | null; successAt: string | null;
+} | null };
+const healthText = { unknown: "아직 확인하지 않음", ok: "정상", invalid: "키 또는 권한 확인 필요", limited: "호출 한도 초과", maintenance: "넥슨 점검 중", unavailable: "넥슨 연결 불가" };
 
 /**
  * 계정의 넥슨 Open API 키 등록·바꾸기·삭제. 이 계정 캐릭터의 넥슨 조회는 모두 이 키로 한다.
@@ -27,7 +30,7 @@ export default function NexonKey({ onChanged, onClose, onUnauthorized, compact =
     setBusy(true); setError(""); setNotice("");
     try {
       const next = await api<KeyStatus>("/api/nexon-key", null, init);
-      setStatus(next); setKey(""); setNotice(done); onChanged(next.registered);
+      setStatus(next); setKey(""); setNotice(done); if (init.method !== "POST") onChanged(next.registered);
     } catch (failure) {
       if (failure instanceof ApiError && failure.status === 401) onUnauthorized?.(); else setError(errorText(failure, "넥슨 API 키를 저장하지 못했습니다."));
     } finally { setBusy(false); }
@@ -49,7 +52,14 @@ export default function NexonKey({ onChanged, onClose, onUnauthorized, compact =
         placeholder={status?.registered ? "새 키로 바꾸기" : "넥슨 Open API 키"} required maxLength={200} value={key} onChange={event => setKey(event.target.value)} />
       <button className={smallPrimary} disabled={busy || !key.trim()}>{busy ? "넥슨에서 확인 중…" : status?.registered ? "바꾸기" : "등록"}</button>
     </div>
+    {status?.health && <div className="text-xs text-ink-muted" aria-live="polite">
+      <p>연결 상태: {healthText[status.health.state]}</p>
+      {status.health.checkedAt && <p>최근 확인: {new Date(status.health.checkedAt).toLocaleString("ko-KR")}</p>}
+      {status.health.successAt && <p>최근 정상 응답: {new Date(status.health.successAt).toLocaleString("ko-KR")}</p>}
+      <p className="text-ink-faint">연결 상태와 시간은 서버 재시작 후의 조회 기준입니다.</p>
+    </div>}
     {error && <p role="alert" className="text-xs text-warning">{error}</p>}
+    {status?.registered && <button type="button" className={smallButton} disabled={busy} onClick={() => void send({ method: "POST" }, "키 상태를 다시 확인했습니다.")}>연결 재확인</button>}
     {notice && <p role="status" className="text-xs text-success">{notice}</p>}
   </form>;
   if (compact) return form;
@@ -63,6 +73,6 @@ export default function NexonKey({ onChanged, onClose, onUnauthorized, compact =
     <p className="text-[11px] leading-relaxed text-ink-faint">
       <a className="underline hover:text-ink" href="https://openapi.nexon.com/" target="_blank" rel="noreferrer">openapi.nexon.com</a>에서 애플리케이션을 등록하면 받는 키입니다.
       이 계정 캐릭터의 이미지·레벨, 게임 스케줄러의 보스·클리어, 사냥 효율 정보를 이 키로 가져옵니다. 다른 넥슨 ID의 캐릭터도 이름으로 불러올 수 있습니다.
-      키는 서버에만 저장하고 화면에는 끝 4자만 보입니다.</p>
+      키는 서버 DB에 암호화해 저장하고 화면에는 끝 4자만 보입니다.</p>
   </section>;
 }

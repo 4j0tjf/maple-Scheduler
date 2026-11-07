@@ -1,3 +1,4 @@
+import { KeyRateQueue, observeKey } from "./nexon-traffic";
 /**
  * 넥슨 Open API(메이플스토리) 응답 해석. 호출은 서버 라우트(/api/characters · /api/bosses · /api/rates · /api/nexon-key)와 백필에서만 한다.
  * 키는 서버 하나가 아니라 계정마다 등록한 키(accounts.nexon_api_key)를 쓴다.
@@ -16,17 +17,8 @@
 export const NEXON_BASE = (process.env.NEXON_API_URL || "https://open.api.nexon.com/maplestory/v1").replace(/\/$/, "");
 
 /** 키 하나의 초당 호출 수. 개발 단계 키의 한도(초당 5회)에 맞춘다. 키는 계정마다 따로라 한도도 키마다 따로 센다. */
-const PER_SECOND = 5;
-const started = new Map<string, number[]>();
-async function slot(key: string) {
-  for (;;) {
-    const now = Date.now();
-    const recent = (started.get(key) ?? []).filter(at => now - at < 1000);
-    if (recent.length < PER_SECOND) { recent.push(now); started.set(key, recent); return; }
-    started.set(key, recent);
-    await new Promise(resolve => setTimeout(resolve, 1000 - (now - recent[0]) + 5));
-  }
-}
+const shared = globalThis as typeof globalThis & { mapleNexonSlots?: KeyRateQueue };
+const slots = shared.mapleNexonSlots ??= new KeyRateQueue();
 
 /** 계정에 등록하는 넥슨 Open API 키. 공백 없는 영문·숫자·기호(헤더에 그대로 넣는 값)만 받는다. */
 export const NEXON_KEY = /^[\x21-\x7e]{16,200}$/;
@@ -37,12 +29,26 @@ export function keyHint(key: string) {
 }
 
 export class NexonError extends Error { constructor(readonly code: string | undefined, readonly status: number) { super(code ?? String(status)); } }
-export async function nexonGet<T>(path: string, key: string): Promise<T> {
-  await slot(key);
-  const response = await fetch(`${NEXON_BASE}${path}`, { headers: { "x-nxopen-api-key": key }, cache: "no-store", signal: AbortSignal.timeout(8000) });
-  const data = await response.json().catch(() => null) as { error?: { name?: string } } | null;
-  if (!response.ok) throw new NexonError(data?.error?.name, response.status);
-  return data as T;
+export async function nexonGet<T>(path: string, key: string, background = false): Promise<T> {
+  await slots.take(key, background);
+  try {
+    const response = await fetch(`${NEXON_BASE}${path}`, { headers: { "x-nxopen-api-key": key }, cache: "no-store", signal: AbortSignal.timeout(8000) });
+    const data = await response.json().catch(() => null) as { error?: { name?: string } } | null;
+    if (!response.ok) {
+      const code = data?.error?.name;
+      const error = new NexonError(code, response.status);
+      observeKey(key, keyRejected(error) ? "invalid" : response.status === 429 || code === "OPENAPI00007" ? "limited"
+        : ["OPENAPI00010", "OPENAPI00011"].includes(code ?? "") ? "maintenance"
+        : ["OPENAPI00003", "OPENAPI00004", "OPENAPI00009"].includes(code ?? "") ? "ok" : "unavailable");
+      throw error;
+    }
+    if (!data) { observeKey(key, "unavailable"); throw new Error("넥슨 API 응답 형식 오류"); }
+    observeKey(key, "ok");
+    return data as T;
+  } catch (error) {
+    if (!(error instanceof NexonError)) observeKey(key, "unavailable");
+    throw error;
+  }
 }
 /** 캐릭터명으로 ocid를 찾는다. 넥슨에 없는 이름(OPENAPI00004)이면 null, 그 밖의 오류(점검·한도·키)는 던진다. */
 export async function findOcid(name: string, key: string): Promise<string | null> {

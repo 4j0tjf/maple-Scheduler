@@ -25,7 +25,7 @@ async function main() {
     const characters = await fetch(`${base}/api/characters`, { headers: { Cookie: cookie } }); assert.equal(characters.status, 200);
     assert.equal((await characters.json() as { nexon: boolean }).nexon, false, "새 계정에는 넥슨 API 키가 없다");
     const key = await fetch(`${base}/api/nexon-key`, { headers: { Cookie: cookie } }); assert.equal(key.status, 200);
-    assert.deepEqual(await key.json(), { registered: false, hint: null });
+    assert.deepEqual(await key.json(), { registered: false, hint: null, health: null });
     console.log(`API 확인: 가입·로그인 정상, 사냥터 ${catalog.maps.length}개(${catalog.version})`);
   } finally {
     await prisma.account.deleteMany({ where: { username } });
