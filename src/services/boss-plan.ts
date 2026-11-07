@@ -13,6 +13,10 @@ export type BossState = {
   weeklyCount: number | null; weeklyLimit: number | null;
   /** 주간 보스 항목이 하나도 없으면 미접속 등으로 줄어든 응답이다. 이때 등록·완료 여부를 믿지 않는다. */
   weeklyStale: boolean;
+  /** 축약 응답에서도 유지할 마지막 확인 등록 목록. 완료 정보는 복사하지 않는다. */
+  registrationFallback?: { fetchedAt: number; bosses: ApiBoss[] };
+  /** 저장본도 과거 13일 응답도 없는 경우 같은 한국 날짜의 반복 조회를 피한다. */
+  registrationCheckedDay?: string;
   /** 그날 게임에 접속했는지. 접속하지 않은 날의 응답에는 일간 보스(bossDaily) 항목이 없다. 예전에 저장한 상태에는 없다. */
   loggedIn?: boolean;
   /** 주기가 바뀐 뒤 아직 접속하지 않아 넥슨이 지난 주기 완료를 보내고 있어 완료 표시를 지운 주기. */
@@ -92,11 +96,13 @@ export type BossRow = {
 
 /** 그 주기의 API 완료·등록 정보. 지난 주기에 받은 응답의 완료 표시는 쓰지 않는다. */
 export function apiFor(state: BossState | null, boss: Boss, now: number) {
-  if (!state || state.weeklyStale) return { registered: undefined, complete: undefined };
+  if (!state) return { registered: undefined, complete: undefined };
   const same = periodOf(boss.cycle, state.fetchedAt) === periodOf(boss.cycle, now);
+  const registeredEntries = (state.weeklyStale ? state.registrationFallback?.bosses ?? [] : state.bosses)
+    .filter(entry => entry.boss === boss.key && isDifficulty(entry.difficulty));
   const entries = state.bosses.filter(entry => entry.boss === boss.key && isDifficulty(entry.difficulty));
   const priced = (list: ApiBoss[]) => list.sort((a, b) => (levelOf(boss, b.difficulty)?.price ?? 0) - (levelOf(boss, a.difficulty)?.price ?? 0))[0];
-  return { registered: priced(entries.filter(entry => entry.registered)), complete: same ? priced(entries.filter(entry => entry.complete)) : undefined };
+  return { registered: priced(registeredEntries.filter(entry => entry.registered)), complete: same && !state.weeklyStale ? priced(entries.filter(entry => entry.complete)) : undefined };
 }
 
 /**

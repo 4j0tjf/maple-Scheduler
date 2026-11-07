@@ -1,10 +1,11 @@
 import "server-only";
+import { recoverRegistrations } from "./boss-registration";
 import { readAccountKey } from "./nexon-key-store";
 import { prisma } from "@/lib/prisma";
 import { BOSSES, findBoss, levelOf, shareOf } from "@/data/bosses";
 import { apiFor, groupOf, hiddenBosses, judgeState, readSchedulerState, settleState, type BossState, type Group } from "./boss-plan";
 import { findOcid, NexonError, nexonError, nexonGet, readBasic, type CharacterBasic } from "./nexon";
-import { addDays, koreaDate, monthStart, periodOf, weekStart } from "./period";
+import { addDays, koreaDate, monthStart, pastDays, periodOf, weekStart } from "./period";
 
 /** 같은 캐릭터의 보스 상태는 이 시간 동안 저장본을 쓴다. 넥슨 데이터도 몇 분 늦게 반영된다. */
 export const BOSS_TTL = 5 * 60_000;
@@ -52,9 +53,17 @@ export async function syncCharacter(row: Row, key: string, force: boolean, now =
     }
     const raw = readSchedulerState(await nexonGet(`/scheduler/character-state?ocid=${encodeURIComponent(ocid)}`, key), now);
     const saved = await prisma.character.findUnique({ where: { id: row.id }, select: { activeDay: true, bossState: true } });
+    const stored = (saved?.bossState ?? null) as BossState | null;
+    const history = raw.weeklyStale ? await prisma.bossSnapshot.findMany({
+      where: { characterId: row.id, date: { in: pastDays(now) } }, select: { date: true, state: true },
+    }) : [];
+    const recovered = await recoverRegistrations(raw, stored, history.map(snapshot => ({ date: snapshot.date, state: snapshot.state as BossState })), async date => {
+      // 과거 처치 저장은 백필에 맡긴다. 여기서 스냅샷을 저장하면 백필이 미처리 날짜를 건너뛴다.
+      return readSchedulerState(await nexonGet(`/scheduler/character-state?ocid=${encodeURIComponent(ocid!)}&date=${date}`, key), Date.parse(`${date}T23:59:59+09:00`));
+    }, force);
     const activeDay = raw.loggedIn ? koreaDate(now) : saved?.activeDay ?? null;
     // 주기가 바뀐 뒤 아직 접속하지 않았으면 넥슨이 보내는 지난 주기 완료 표시를 지우고, 그것으로 잘못 남긴 이번 주기 처치 기록도 지운다.
-    const state = await settle(row.id, raw, activeDay, saved?.bossState as BossState | null, () => true);
+    const state = await settle(row.id, recovered, activeDay, stored, () => true);
     await prisma.character.update({ where: { id: row.id }, data: { bossState: state, bossSyncedAt: at, activeDay } });
     await recordApiClears(row.id, state, now);
     await releaseHidden(row.id, state, now);

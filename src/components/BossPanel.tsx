@@ -387,7 +387,11 @@ export default function BossPanel({ characters, nexonVersion, onCharactersChange
               <span className="ml-2 align-middle text-xs font-medium text-ink-muted">주간 {totals?.weekly.count ?? 0}/{limit}마리 · 예상 {eok(totals?.weekly.planned ?? 0)}</span></h2>
             <p className="text-xs text-ink-faint">결정석은 1인 판매가 ÷ 인원(소수점 버림)</p>
           </div>
-          {view?.row.state?.weeklyStale && <p className="mb-2 rounded-lg bg-surface-2 px-3 py-2 text-xs text-ink-muted">넥슨 스케줄러에 이번 주 보스 정보가 없습니다(오래 접속하지 않은 캐릭터 등). 게임에 접속하면 몇 분 뒤 반영됩니다.</p>}
+          {view?.row.state?.weeklyStale && <p className="mb-2 rounded-lg bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+            {view.row.state.registrationFallback
+              ? <>넥슨의 현재 응답에 보스 목록이 없어 {new Date(view.row.state.registrationFallback.fetchedAt).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}에 확인한 등록 목록을 표시합니다. 과거 클리어는 이번 처치로 복사하지 않습니다.</>
+              : <>넥슨의 현재 응답에 보스 목록이 없고, 아직 복원할 등록 목록도 확인되지 않았습니다. 보스를 직접 추가하거나 게임 접속 후 새로고침하세요.</>}
+          </p>}
           {!view?.row.state?.weeklyStale && !!view?.row.state?.waiting?.length && <p className="mb-2 rounded-lg bg-surface-2 px-3 py-2 text-xs text-ink-muted">
             {view.row.state.waiting.map(group => group === "weekly" ? "목요일" : "1일").join("·")} 초기화 뒤 아직 게임에 접속하지 않아 넥슨이 {view.row.state.waiting.map(group => group === "weekly" ? "지난주" : "지난달").join("·")} 클리어를 그대로 보내고 있습니다.
             그 클리어는 이번 {view.row.state.waiting.map(group => group === "weekly" ? "주" : "달").join("·")} 처치로 세지 않고, 게임에 접속하면 몇 분 뒤 이번 클리어가 반영됩니다.</p>}
