@@ -84,6 +84,16 @@
 - 브라우저 저장소: 같은 도메인이라 인식 보정 영역·영상 녹화 설정·그날 직접 넣은 조각 시세는 기존 화면과 같이 쓴다. 진행 중 사냥·업로드 대기열·계산 설정·녹화 보관함은 따로 둔다(`maple-scheduler-*`). 기존 화면에서 진행 중이던 사냥은 기존 화면에서 마무리한다.
 - 사냥터 목록은 기존 프로젝트의 `data/hunting-maps.json`을 이 프로젝트 `data/`로 복사한다([docs/hunting-map-data.md](docs/hunting-map-data.md)).
 
+## 유챔 가호 계산기(/gaho) 연동
+
+같은 도메인의 유챔 가호 계산기([maple-uchampgaho-calc](https://github.com/4j0tjf/maple-uchampgaho-calc), `/gaho`)가 이 스케줄러 계정으로 로그인한다. 세션 쿠키가 `Path=/scheduler`라 계산기 서버가 아니라 **계산기 화면이** 아래 API를 직접 부른다(같은 출처라 쿠키가 붙고 Origin 확인도 통과한다). 넥슨 키 원문은 밖으로 나가지 않는다.
+
+- `GET/POST/DELETE /api/session`, `GET /api/characters`: 지금 있는 API를 그대로 쓴다(로그인, 등록한 캐릭터 불러오기).
+- `GET/PUT /api/gaho`: 계산기 값(넥슨 계정 탭마다 챔피언 코인·이월 코인·캐릭터별 주간 횟수와 고정 단계)을 계정마다 한 줄(`gaho_states`, JSON)로 둔다. 크기 256KB, 탭 20개·탭마다 캐릭터 60명까지 받고 칸마다의 값은 계산기 화면이 다시 정리한다. PUT은 `{ state, base }`: base는 불러온 때의 `updatedAt`이고, 그사이 다른 기기·창에서 먼저 저장했으면 덮어쓰지 않고 409와 저장본을 돌려준다. 계정을 지우면 함께 지워진다.
+- `GET /api/gaho/character?name=`: 그 계정의 넥슨 API 키로 캐릭터 기본 정보(`{ name, image, level, job, world }`)를 찾는다. 스케줄러에 등록하지 않는다. 같은 계정·같은 이름은 1시간 저장본(서버 메모리). 키가 없으면 409.
+
+`src/app/api/gaho/`, `src/services/gaho.ts`, 마이그레이션 `20261110000000_gaho_state`. 배포 스크립트가 DB 변경을 함께 적용한다.
+
 ## 시세 사이트(maple-market)에서 할 일
 
 상단 메뉴와 `/scheduler` 주소 연결은 maple-market에 있어 이 저장소에서 바꾸지 못했다. 다음을 maple-market에 적용한다.

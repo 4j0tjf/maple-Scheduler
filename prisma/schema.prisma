@@ -20,8 +20,21 @@ model Account {
   createdAt    DateTime @default(now()) @map("created_at")
 
   characters Character[]
+  gahoState  GahoState?
 
   @@map("accounts")
+}
+
+/// 유챔 가호 계산기(/gaho, maple-uchampgaho-calc)의 계정별 값. 넥슨 계정 탭·챔피언 코인·캐릭터별 주간 횟수와 고정 단계를
+/// 계산기 화면의 형식(JSON) 그대로 둔다. 계산기 화면이 /api/gaho로 불러오고 저장한다.
+model GahoState {
+  accountId String   @id @map("account_id")
+  state     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("gaho_states")
 }
 
 /// 계정에 등록한 메이플 캐릭터. 이미지·레벨·직업·월드는 넥슨 Open API(character/basic)에서 가져온다.
