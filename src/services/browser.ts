@@ -1,7 +1,7 @@
 import { PixelWorker } from "./pixel-worker";
 import { parseCount, parseMeso, parseTimer, potionFromTimer, PotionDetector, StableValue, type Potion } from "./domain";
 import { LocalOcr } from "./local-ocr";
-import { bounded, compact, countBand, findMapHeader, normalizeMap, readBuffTimer, type Box, type TextBox } from "./scanner";
+import { binarizeMapText, bounded, compact, countBand, findMapHeader, fragmentReading, normalizeMap, readBuffTimer, type Box, type TextBox } from "./scanner";
 
 export type Role = "buffArea" | "buffIcon" | "timer" | "alternateIcon" | "alternateTimer" | "character" | "inventory" | "meso" | "fragmentIcon" | "fragments" | "map";
 export const ROLES: Record<Role, string> = { buffArea: "버프 목록 전체", buffIcon: "재획 버프 아이콘 (숫자 제외)", timer: "그 버프의 남은 시간 (분+초 표시)",
@@ -16,14 +16,14 @@ export function crop(source: HTMLCanvasElement, r: Region, scale = 1) {
 }
 /**
  * 판독용 조각. 사냥터 이름(미니맵 머리글)은 짙은 바탕의 밝은 작은 글자라 검은 글자로 이진화해야 OCR이 읽는다
- * (실제 화면 7장에서 지역 이름을 2장 → 7장 읽음).
+ * (실제 화면 7장에서 지역 이름을 2장 → 7장 읽음). 기준 밝기는 binarizeMapText를 본다.
  */
 export function tile(frame: HTMLCanvasElement, region: Region, role: Role) {
   const canvas = crop(frame, region, Math.min(4, 960 / region.w, 140 / region.h));
   if (role === "map") {
     const context = canvas.getContext("2d", { willReadFrequently: true })!;
-    const image = context.getImageData(0, 0, canvas.width, canvas.height), data = image.data;
-    for (let i = 0; i < data.length; i += 4) data[i] = data[i + 1] = data[i + 2] = data[i] * .299 + data[i + 1] * .587 + data[i + 2] * .114 > 140 ? 0 : 255;
+    const image = context.getImageData(0, 0, canvas.width, canvas.height);
+    binarizeMapText(image.data);
     context.putImageData(image, 0, 0);
   }
   return canvas;
@@ -129,13 +129,14 @@ export class Recognition {
     const pixels = frame.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, frame.width, frame.height);
     const icons = this.ocr.icons!;
     // 인벤토리는 글자(제목·MESO)가 아니라 메소 줄의 아이콘으로 찾는다. 전체 화면 OCR은 확대 방식에 따라 제목을 놓친다.
-    const { layout, fragments, header, buff, minuteTimer } = await this.pixels.read({ pixels, icons });
+    const { layout, fragments, hexa, header, buff, minuteTimer } = await this.pixels.read({ pixels, icons });
     const inputs: { role: Role; region: Region }[] = [];
     if (layout) inputs.push({ role: "meso", region: layout.amount });
     // 조각이 여러 칸이면 모두 더한다. 개수는 픽셀 숫자 모양으로 읽고, 영역은 증거 이미지로만 남긴다.
-    // Never turn an absent icon into zero.
+    // Never turn an absent icon into zero: 조각 칸이 없으면 HEXA 보유한 재료 창(0개도 보인다)의 개수만 쓴다.
     for (const stack of fragments?.stacks ?? []) inputs.push({ role: "fragments", region: countBand(stack) });
-    const fragmentCount = fragments?.total ?? null;
+    const fragment = fragmentReading(fragments, hexa), fragmentCount = fragment.count;
+    if (fragment.fromHexa) inputs.push({ role: "fragments", region: hexa!.region });
     // 미니맵 머리글 두 줄은 픽셀로 찾고 줄마다 읽는다. 지역 이름은 동명 사냥터를 가르는 데만 쓴다.
     if (header) inputs.push({ role: "map", region: header.name });
     const street = header ? normalizeMap((await this.ocr.read(tile(frame, header.street, "map"), "line")).lines
@@ -156,12 +157,13 @@ export class Recognition {
     const name = hud.words.find(w => w.confidence >= 60 && compact(w.text) === expectedName);
     if (name) inputs.push({ role: "character", region: name });
     const stacks = fragments?.stacks.length ?? 0;
-    return { inputs, inventory: !!layout, fragmentVisible: stacks > 0, buff: !!buff, kind: buff?.kind ?? null, fragmentCount, street, minuteTimer,
-      hint: !layout ? "인벤토리를 열고 아래쪽 메소 줄(동전·P 아이콘)이 가리지 않게 보여주세요."
-        : !stacks ? "기타 탭을 열어 솔 에르다 조각이 보이게 해주세요."
+    const widget = fragment.fromHexa ? `조각 ${hexa!.count}개 (HEXA 보유한 재료 창)` : null;
+    return { inputs, inventory: !!layout, fragmentVisible: fragment.visible, buff: !!buff, kind: buff?.kind ?? null, fragmentCount, street, minuteTimer,
+      hint: !layout ? `인벤토리를 열고 아래쪽 메소 줄(동전·P 아이콘)이 가리지 않게 보여주세요.${widget ? ` · ${widget}` : ""}`
+        : widget ?? (!stacks ? "기타 탭을 열어 솔 에르다 조각이 보이게 해주세요. 조각이 0개면 HEXA 매트릭스의 '보유한 재료' 창을 띄워 두세요."
         : fragmentCount == null ? `조각 ${stacks}칸 중 개수를 못 읽은 칸이 있습니다. 게임 화면을 줄이거나 늘리지 말고 원래 크기로 공유하고, 조각 칸을 가리지 마세요.`
         : stacks > 1 ? `조각 ${stacks}칸 합계 (${fragments!.counts.join(" + ")})`
-        : "인벤토리 위치 자동 확인" };
+        : "인벤토리 위치 자동 확인") };
   }
   async read(frame: HTMLCanvasElement, config: Calibration | null, expectedName: string) {
     // Timestamp the captured frame, not the end of a potentially slow OCR operation.

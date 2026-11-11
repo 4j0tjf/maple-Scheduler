@@ -19,7 +19,7 @@ export default function HuntSteps({ loggedIn, running, seen, active, now, childr
   const steps: Step[] = [
     { title: "스캔 시작", body: "‘스캔 시작’을 누르고 메이플 창을 선택하세요. 게임의 버프 시간은 ‘분+초’로 표시하세요.",
       done: running, current: loggedIn && !running },
-    { title: "사냥 전 수량 확인", body: "비약을 쓰기 전에 인벤토리(기타 탭)를 열어 메소와 솔 에르다 조각이 보이게 두세요.",
+    { title: "사냥 전 수량 확인", body: "비약을 쓰기 전에 인벤토리(기타 탭)를 열어 메소와 솔 에르다 조각이 보이게 두세요. 조각이 0개면 HEXA 매트릭스의 '보유한 재료' 창을 띄워 두면 0개로 읽습니다.",
       done: checked, current: running && !active && !checked,
       detail: active ? undefined : meso || fragments
         ? `확인됨 · 메소 ${number(meso?.value)} · 조각 ${number(fragments?.value)}${meso && fragments ? ` · ${Math.floor(left / 60)}분 ${left % 60}초 안에 비약을 사용하세요` : " · 나머지 항목도 보이게 해 주세요"}`

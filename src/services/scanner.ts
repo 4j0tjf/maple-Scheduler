@@ -105,6 +105,86 @@ export function readItemCount(frame: Pixels, icon: Box): number | null {
 }
 
 /**
+ * HEXA 매트릭스 '보유한 재료' 작은 창의 숫자(높이 5px 흰 글자). 'o' 흰색, '.' 흰색 아님.
+ * 0·1·2·6·9·/는 2026-10 KMS 화면에서 떴다. 3·4·5·7·8은 같은 글꼴 모양으로 그린 것이라 실제와 다를 수 있다.
+ * 다르면 그 숫자가 든 개수를 못 읽을(null) 뿐 다른 숫자로 읽지는 않는다. 그럴듯한 모양이 둘이면 둘 다 둔다.
+ */
+export const HEXA_DIGITS: Record<string, string[][]> = {
+  "0": [[".ooo.", "o...o", "o...o", "o...o", ".ooo."]],
+  "1": [["oo", ".o", ".o", ".o", ".o"]],
+  "2": [["oooo.", "....o", ".oooo", "o....", "ooooo"]],
+  "3": [["oooo.", "....o", ".ooo.", "....o", "oooo."], ["oooo.", "....o", "..oo.", "....o", "oooo."]],
+  "4": [["o..o.", "o..o.", "ooooo", "...o.", "...o."], ["...o.", "..oo.", ".o.o.", "ooooo", "...o."]],
+  "5": [["ooooo", "o....", "oooo.", "....o", "oooo."]],
+  "6": [[".ooo.", "o....", "oooo.", "o...o", ".ooo."]],
+  "7": [["ooooo", "....o", "...o.", "..o..", "..o.."], ["ooooo", "....o", "...o.", "..o..", ".o..."]],
+  "8": [[".ooo.", "o...o", ".ooo.", "o...o", ".ooo."]],
+  "9": [[".ooo.", "o...o", ".oooo", "....o", ".ooo."]],
+  "/": [["....o", "...o.", "..o..", ".o...", "o...."]],
+};
+export type HexaFragments = { count: number; slash: Box; region: Box };
+/**
+ * HEXA 매트릭스 '보유한 재료' 작은 창(HEXA 매트릭스의 보유 재료 옆 버튼으로 띄운다)의 솔 에르다 조각 개수.
+ * 왼쪽 칸은 솔 에르다 기운 "966 / 1000", 오른쪽 칸이 조각 개수다. 조각이 0개여도 0으로 나온다.
+ * 아이콘은 반짝일 수 있어 기운 칸의 "/"와 그 뒤 최대치로 창을 찾고, 같은 줄 오른쪽 칸("/"에서 약 40~110px)의 숫자를 읽는다.
+ * 칸 가운데 정렬이라 자리 수에 따라 위치가 바뀐다. 모르는 글자가 있거나 숫자 무리가 둘 이상이면 null. 원래 크기(100%) 화면만.
+ */
+export function readHexaFragments(frame: Pixels, last?: Box | null): HexaFragments | null {
+  const white = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= frame.width || y >= frame.height) return false;
+    const i = (y * frame.width + x) * 4;
+    return frame.data[i] > 180 && frame.data[i + 1] > 180 && frame.data[i + 2] > 180;
+  };
+  const lit = (x: number, y: number) => white(x, y) || white(x, y + 1) || white(x, y + 2) || white(x, y + 3) || white(x, y + 4);
+  /** [from, to)에서 흰 픽셀이 있는 세로줄을 묶어 글자로 나눈다. 모양이 맞는 글자가 없으면 text는 null. */
+  const glyphs = (y: number, from: number, to: number) => {
+    const found: { x: number; end: number; text: string | null }[] = [];
+    for (let x = from; x < to; x++) {
+      if (!lit(x, y)) continue;
+      let end = x;
+      while (end + 1 < to && lit(end + 1, y)) end++;
+      const rows = [0, 1, 2, 3, 4].map(dy => Array.from({ length: end - x + 1 }, (_, dx) => white(x + dx, y + dy) ? "o" : ".").join(""));
+      found.push({ x, end, text: Object.keys(HEXA_DIGITS).find(key => HEXA_DIGITS[key].some(shape => shape.every((row, i) => row === rows[i]))) ?? null });
+      x = end;
+    }
+    return found;
+  };
+  /** 붙어 있는(글자 사이 3px 이하) 숫자 무리. 숫자가 아니면 null. */
+  const number = (run: ReturnType<typeof glyphs>) =>
+    run.length && run.every((glyph, i) => glyph.text && glyph.text !== "/" && (i === 0 || glyph.x - run[i - 1].end <= 4)) ? run.map(glyph => glyph.text).join("") : null;
+  // (x, y)는 "/"의 오른쪽 위 픽셀.
+  const read = (x: number, y: number): HexaFragments | null => {
+    for (let dy = 0; dy < 5; dy++) for (let dx = 0; dx < 5; dx++) if (white(x - 4 + dx, y + dy) !== (dx === 4 - dy)) return null;
+    const after = glyphs(y, x + 1, x + 40);
+    const gap = after.findIndex((glyph, i) => i > 0 && glyph.x - after[i - 1].end > 4);
+    const maximum = after.slice(0, gap < 0 ? after.length : gap);
+    if (!maximum.length || maximum[0].x - x > 6 || !number(maximum)) return null;
+    const run = glyphs(y, maximum[maximum.length - 1].end + 5, x + 115), text = number(run);
+    if (!text) return null;
+    const left = run[0].x, right = run[run.length - 1].end;
+    // 숫자 바로 위·아래 줄은 보라색 바탕이다. 더 큰 글자의 일부를 숫자로 읽지 않는다.
+    for (let px = left - 1; px <= right + 1; px++) if (white(px, y - 1) || white(px, y + 5)) return null;
+    const count = parseCount(text);
+    return count == null ? null : { count, slash: { x: x - 4, y, w: 5, h: 5 }, region: { x: left - 30, y: y - 8, w: right - left + 61, h: 21 } };
+  };
+  if (last) { const found = read(last.x + 4, last.y); if (found) return found; }
+  for (let y = 0; y + 5 <= frame.height; y++) for (let x = 4; x < frame.width; x++) {
+    if (!white(x, y) || !white(x - 1, y + 1) || !white(x - 4, y + 4)) continue;
+    const found = read(x, y);
+    if (found) return found;
+  }
+  return null;
+}
+/**
+ * 조각 개수: 인벤토리 조각 칸 합계를 먼저 쓰고, 인벤토리에 조각 칸이 없거나 개수를 못 읽으면 HEXA '보유한 재료' 창의 개수를 쓴다.
+ * 인벤토리에 조각 칸이 없다는 것만으로는 0개인지 다른 탭이 열렸는지 알 수 없지만, 보유한 재료 창은 0개도 0으로 보여 준다.
+ */
+export function fragmentReading(inventory: { stacks: Box[]; total: number | null } | null, hexa: HexaFragments | null) {
+  const count = inventory?.total ?? hexa?.count ?? null;
+  return { count, visible: !!inventory?.stacks.length || !!hexa, fromHexa: inventory?.total == null && !!hexa };
+}
+
+/**
  * 사냥터 이름으로 쓸 만한 글자인지. 한글 2자 이상, 숫자·시간만으로 된 글자는 제외하고 30자로 자른다.
  * 앞쪽의 한글 없는 조각("ELH] 미슈피라의 눈"처럼 미니맵 아이콘을 읽은 것)은 뗀다. 뒤쪽 숫자(군락 1)는 사냥터 구분이라 둔다.
  */
@@ -119,56 +199,106 @@ export function normalizeMap(text: string | null | undefined): string | null {
  * 더 넓히면 미니맵 버튼·지도를 글자로 잘못 읽어 두 줄을 놓치는 일이 잦았다(실제 화면 4장으로 비교).
  */
 export const mapHeader = (width: number, height: number): Box => ({ x: 0, y: 0, w: Math.min(width, 300), h: Math.min(height, 120) });
+export type MapHeader = { icon: Box; street: Box; name: Box };
 /**
  * 미니맵 머리글의 두 줄(지역, 사냥터 이름) 위치를 픽셀로 찾는다.
  * 머리글 전체를 OCR로 훑으면 줄 찾기부터 흔들렸다(카르시온 → "| EES"로 읽혀 두 줄을 못 짝지음).
  * 구조(KMS 2026-09): 밝은 테두리의 정사각형 지도 아이콘 오른쪽, 짙은 청회색 바탕에 밝은 글자 두 줄.
+ * area 왼쪽 iconSpan 안의 아이콘 후보를 왼쪽부터 차례로 보고, 오른쪽에 두 줄이 나오는 첫 후보를 쓴다.
+ * 밝은 무늬가 많은 화면을 넓게 찾아도 오래 걸리지 않게 확인할 후보 수에 한도를 둔다.
  */
-export function findMapHeader(frame: Pixels): { street: Box; name: Box } | null {
-  const area = mapHeader(frame.width, frame.height);
-  const rgb = (x: number, y: number) => { const i = (y * frame.width + x) * 4; return [frame.data[i], frame.data[i + 1], frame.data[i + 2]]; };
-  const bright = (x: number, y: number) => { const v = rgb(x, y); return Math.min(...v) > 190 && Math.max(...v) - Math.min(...v) < 40; };
-  const dark = (x: number, y: number) => Math.max(...rgb(x, y)) < 120;
+export function findMapHeader(frame: Pixels, area = mapHeader(frame.width, frame.height), iconSpan = 140): MapHeader | null {
+  const bounds = bounded(area, frame.width, frame.height), areaRight = bounds.x + bounds.w, areaBottom = bounds.y + bounds.h;
+  // 밝은 글자·테두리: 세 색이 모두 밝고 비슷하다(흰색·밝은 회색).
+  const mask = new Uint8Array(bounds.w * bounds.h);
+  for (let y = bounds.y; y < areaBottom; y++) for (let x = bounds.x; x < areaRight; x++) {
+    const i = (y * frame.width + x) * 4, r = frame.data[i], g = frame.data[i + 1], b = frame.data[i + 2], low = Math.min(r, g, b);
+    if (low > 190 && Math.max(r, g, b) - low < 40) mask[(y - bounds.y) * bounds.w + x - bounds.x] = 1;
+  }
+  const bright = (x: number, y: number) => mask[(y - bounds.y) * bounds.w + x - bounds.x] === 1;
+  const dark = (x: number, y: number) => { const i = (y * frame.width + x) * 4; return x < areaRight && Math.max(frame.data[i], frame.data[i + 1], frame.data[i + 2]) < 120; };
   // 1) 아이콘: 세로로 밝은 테두리 두 개가 한 변 길이만큼 떨어져 같은 높이에 있다.
-  const columns: { x: number; top: number; length: number }[] = [];
-  for (let x = area.x; x < area.x + Math.min(area.w, 140); x++) {
-    for (let y = area.y, run = 0; y <= area.y + area.h; y++) {
-      if (y < area.y + area.h && bright(x, y)) { run++; continue; }
-      if (run >= 24 && run <= 80) columns.push({ x, top: y - run, length: run });
+  type Column = { x: number; top: number; length: number };
+  const columns: Column[] = [], byX: Column[][] = Array.from({ length: bounds.w }, () => []);
+  for (let x = bounds.x; x < areaRight; x++) {
+    for (let y = bounds.y, run = 0; y <= areaBottom; y++) {
+      if (y < areaBottom && bright(x, y)) { run++; continue; }
+      if (run >= 24 && run <= 80) { const column = { x, top: y - run, length: run }; byX[x - bounds.x].push(column); if (x < bounds.x + iconSpan) columns.push(column); }
       run = 0;
     }
   }
+  // 위·아래 변도 밝은 테두리다(모서리가 둥글어 세로 테두리 끝보다 2px쯤 위·아래에 있다).
+  const framed = (left: number, top: number, right: number, h: number) => [top, top + h - 1].every(edge => {
+    let lit = 0, all = 0;
+    for (let x = left + 4; x <= right - 4; x++) { all++; for (let y = Math.max(bounds.y, edge - 3); y <= Math.min(areaBottom - 1, edge + 3); y++) if (bright(x, y)) { lit++; break; } }
+    return all > 0 && lit / all >= .9;
+  });
   // 속이 밝게 꽉 찬 사각형(밝은 창 제목 표시줄 등)은 아이콘이 아니다. 아이콘 안쪽은 지도 그림이다.
   const hollow = (left: number, top: number, right: number, h: number) => {
     let lit = 0, all = 0;
     for (let y = top + 3; y < top + h - 3; y++) for (let x = left + 3; x < right - 2; x++) { all++; if (bright(x, y)) lit++; }
     return all > 0 && lit / all < .8;
   };
-  const icon = columns.flatMap(left => columns.filter(right => right.x - left.x >= left.length - 6 && right.x - left.x <= left.length + 6 &&
-    Math.abs(right.top - left.top) <= 2 && Math.abs(right.length - left.length) <= 3 && hollow(left.x, left.top, right.x, left.length))
-    .map(right => ({ x: left.x, y: Math.min(left.top, right.top), right: right.x, h: left.length })))[0];
-  if (!icon) return null;
-  // 2) 글자 영역: 아이콘 오른쪽부터 바탕이 끝나는 곳(게임 화면)까지. 두 줄 사이 행에서 바탕 끝을 잰다.
-  const start = icon.right + 3, middle = icon.y + Math.round(icon.h / 2);
-  let end = start;
-  while (end < area.x + area.w && (dark(end, middle) || dark(end + 1, middle) || dark(end + 2, middle))) end++;
-  // 3) 밝은 글자가 있는 행을 묶으면 두 줄이 나온다.
-  const rows: number[] = [];
-  for (let y = icon.y; y < icon.y + icon.h; y++) for (let x = start; x < end; x++) if (bright(x, y)) { rows.push(y); break; }
-  const bands: { top: number; bottom: number }[] = [];
-  for (const y of rows) {
-    const last = bands[bands.length - 1];
-    if (last && y - last.bottom <= 2) last.bottom = y; else bands.push({ top: y, bottom: y });
-  }
-  const lines = bands.filter(band => band.bottom - band.top >= 5 && band.bottom - band.top <= 24);
-  if (lines.length !== 2) return null;
-  const box = (band: { top: number; bottom: number }): Box => {
-    let left = end, right = start;
-    for (let y = band.top; y <= band.bottom; y++) for (let x = start; x < end; x++) if (bright(x, y)) { left = Math.min(left, x); right = Math.max(right, x); }
-    // 여백이 좁으면 OCR이 첫 줄(카르시온)을 통째로 놓치고 끝 글자(눈)를 =로 읽었다.
-    return { x: left - 8, y: band.top - 7, w: right - left + 17, h: band.bottom - band.top + 15 };
+  const luma = (x: number, y: number) => { const i = (y * frame.width + x) * 4; return frame.data[i] * .299 + frame.data[i + 1] * .587 + frame.data[i + 2] * .114; };
+  // 2) 글자 영역: 아이콘 오른쪽에서 글자 기둥을 글자 사이 간격(14px 이하)으로 이어 끝을 정한다.
+  //    두 줄 사이 행이 어두운 곳(머리글 바탕)까지로도 자른다. 바탕이 실제 화면보다 밝아 그 끝이 첫 글자 앞이면 간격만 본다
+  //    (바탕이 조금만 밝아도 바탕 끝을 아이콘 바로 옆으로 잡아 두 줄을 통째로 놓쳤다).
+  //    글자 기둥은 바탕(중앙값)보다 50 이상 밝은 픽셀이 있는 세로줄이다. 경계가 부드러운 글꼴은 아주 밝은 픽셀만 보면 글자 사이가 끊긴다.
+  const lines = (icon: { x: number; y: number; right: number; h: number }): MapHeader | null => {
+    const top = icon.y, bottom = Math.min(areaBottom, icon.y + icon.h), start = icon.right + 3, middle = icon.y + Math.round(icon.h / 2);
+    const ground: number[] = [];
+    for (let y = top; y < bottom; y++) for (let x = start; x < Math.min(areaRight, start + 120); x++) ground.push(luma(x, y));
+    const level = ground.sort((a, b) => a - b)[ground.length >> 1] + 50;
+    const lit = (x: number) => { for (let y = top; y < bottom; y++) if (luma(x, y) > level) return true; return false; };
+    let first = start;
+    while (first < Math.min(areaRight, start + 16) && !lit(first)) first++;
+    if (first >= Math.min(areaRight, start + 16)) return null;
+    let edge = start;
+    while (edge < areaRight && (dark(edge, middle) || dark(edge + 1, middle) || dark(edge + 2, middle))) edge++;
+    let last = first;
+    // 사냥터 이름은 머리글 폭(약 300px)을 넘지 않는다.
+    for (let x = first, stop = Math.min(edge > first ? edge : areaRight, start + 320); x < stop && x - last <= 14; x++) if (lit(x)) last = x;
+    // 3) 밝은 글자가 있는 행을 묶으면 두 줄이 나온다.
+    const rows: number[] = [];
+    for (let y = top; y < bottom; y++) for (let x = first; x <= last; x++) if (bright(x, y)) { rows.push(y); break; }
+    const bands: { top: number; bottom: number }[] = [];
+    for (const y of rows) {
+      const previous = bands[bands.length - 1];
+      if (previous && y - previous.bottom <= 2) previous.bottom = y; else bands.push({ top: y, bottom: y });
+    }
+    const found = bands.filter(band => band.bottom - band.top >= 5 && band.bottom - band.top <= 24);
+    if (found.length !== 2) return null;
+    const box = (band: { top: number; bottom: number }): Box => {
+      let left = last, right = first;
+      for (let y = band.top; y <= band.bottom; y++) for (let x = first; x <= last; x++) if (bright(x, y)) { left = Math.min(left, x); right = Math.max(right, x); }
+      // 여백이 좁으면 OCR이 첫 줄(카르시온)을 통째로 놓치고 끝 글자(눈)를 =로 읽었다.
+      return { x: left - 8, y: band.top - 7, w: right - left + 17, h: band.bottom - band.top + 15 };
+    };
+    return { icon: { x: icon.x, y: icon.y, w: icon.right - icon.x + 1, h: icon.h }, street: box(found[0]), name: box(found[1]) };
   };
-  return { street: box(lines[0]), name: box(lines[1]) };
+  let budget = 64;
+  for (const left of columns) for (let x = left.x + left.length - 6; x <= left.x + left.length + 6; x++) for (const right of byX[x - bounds.x] ?? []) {
+    if (Math.abs(right.top - left.top) > 2 || Math.abs(right.length - left.length) > 3 || !framed(left.x, left.top, right.x, left.length) || !hollow(left.x, left.top, right.x, left.length)) continue;
+    const header = lines({ x: left.x, y: Math.min(left.top, right.top), right: right.x, h: left.length });
+    if (header) return header;
+    if (--budget === 0) return null;
+  }
+  return null;
+}
+
+/**
+ * 사냥터 이름 조각을 흰 바탕의 검은 글자로 이진화한다(밝은 작은 글자 그대로는 OCR이 못 읽는다).
+ * 기준은 밝기 140이고, 바탕(가장 흔한 밝기 쪽인 중앙값)이 밝게 비치면 바탕보다 60 밝은 곳까지 올린다.
+ * 기준을 고정하면 바탕이 조금만 밝아도 바탕까지 글자로 칠해져 "거대 산호 군락 2"를 "AM 군락 2"로 읽었다.
+ */
+export function binarizeMapText(data: Uint8ClampedArray) {
+  const luma = new Float32Array(data.length / 4), histogram = new Uint32Array(256);
+  for (let i = 0; i < luma.length; i++) histogram[Math.round(luma[i] = data[i * 4] * .299 + data[i * 4 + 1] * .587 + data[i * 4 + 2] * .114)]++;
+  let median = 0;
+  for (let seen = 0; median < 255 && (seen += histogram[median]) < luma.length / 2; median++);
+  const threshold = Math.max(140, median + 60);
+  for (let i = 0; i < luma.length; i++) data[i * 4] = data[i * 4 + 1] = data[i * 4 + 2] = luma[i] > threshold ? 0 : 255;
+  return threshold;
 }
 
 /** A timer is accepted only next to a matched potion; seconds are mandatory for start dating. */
